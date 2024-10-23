@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"FailureDetector/membership"
-	"FailureDetector/receiver"
-	"FailureDetector/sender"
+	"HyDFS/src/membership"
+	"HyDFS/src/receiver"
+	"HyDFS/src/sender"
 )
 
 const (

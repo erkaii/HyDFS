@@ -1,8 +1,8 @@
 package receiver
 
 import (
-	"FailureDetector/membership"
-	"FailureDetector/sender"
+	"HyDFS/src/membership"
+	"HyDFS/src/sender"
 	"fmt"
 	"log"
 	"math/rand"
