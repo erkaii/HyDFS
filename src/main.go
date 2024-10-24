@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"HyDFS/src/filesystem"
 	"HyDFS/src/membership"
 	"HyDFS/src/receiver"
 	"HyDFS/src/sender"
@@ -50,6 +51,7 @@ func main() {
 
 	ml := membership.NewMembershipList()
 
+	// Failure detection go routains
 	go handleSus()
 	go startListenPing(domain, ml)
 	go startListenPingRequest(domain, ml)
@@ -62,6 +64,13 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 
+	// Sent join request automatically
+	joinFD(ml, domain)
+
+	// File server initialization
+	fs := filesystem.FileServerInit(vmNumber)
+	fmt.Println("The id is ", fs.GetId())
+
 	// User input loop for commands
 	reader := bufio.NewReader(os.Stdin)
 
@@ -70,7 +79,54 @@ func main() {
 		input, _ := reader.ReadString('\n')
 		command := strings.TrimSpace(input)
 
-		switch command {
+		words := strings.Fields(command)
+
+		if len(words) == 0 {
+			continue
+		}
+		switch words[0] {
+		case "create":
+			if len(words) != 3 {
+				fmt.Println("Usage: create localfilename HyDFSfilename")
+				continue
+			}
+		case "get":
+			if len(words) != 3 {
+				fmt.Println("Usage: get HyDFSfilename localfilename")
+				continue
+			}
+
+		case "append":
+			if len(words) != 3 {
+				fmt.Println("Usage: append localfilename HyDFSfilename")
+				continue
+			}
+		case "ls":
+			if len(words) != 2 {
+				fmt.Println("Usage: ls HyDFSfilename")
+				continue
+			}
+		case "merge":
+			if len(words) != 2 {
+				fmt.Println("Usage: merge HyDFSfilename")
+				continue
+			}
+		case "store":
+			if len(words) != 1 {
+				fmt.Println("Usage: store")
+				continue
+			}
+		case "getfromreplica":
+			if len(words) != 4 {
+				fmt.Println("Usage: getfromreplica VMaddress HyDFSfilename localfilename")
+				continue
+			}
+		case "list_mem_ids":
+			if len(words) != 1 {
+				fmt.Println("Usage: list_mem_ids")
+				continue
+			}
+
 		case "list_mem":
 			ml.Display()
 		case "list_id":
@@ -145,54 +201,54 @@ func main() {
 			log.Println("Left the network with quit command.")
 			fmt.Println("Shutting down.")
 			return
-		case "rate_0":
-			for vmNumber = 1; vmNumber < 11; vmNumber++ {
-				vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
-				cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
-				if err := cSender.Cmd("CMD 0.0"); err != nil {
-					log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
-				}
-			}
-		case "rate_1":
-			for vmNumber = 1; vmNumber < 11; vmNumber++ {
-				vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
-				cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
-				if err := cSender.Cmd("CMD 0.01"); err != nil {
-					log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
-				}
-			}
-		case "rate_5":
-			for vmNumber = 1; vmNumber < 11; vmNumber++ {
-				vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
-				cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
-				if err := cSender.Cmd("CMD 0.05"); err != nil {
-					log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
-				}
-			}
-		case "rate_10":
-			for vmNumber = 1; vmNumber < 11; vmNumber++ {
-				vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
-				cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
-				if err := cSender.Cmd("CMD 0.1"); err != nil {
-					log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
-				}
-			}
-		case "rate_15":
-			for vmNumber = 1; vmNumber < 11; vmNumber++ {
-				vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
-				cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
-				if err := cSender.Cmd("CMD 0.15"); err != nil {
-					log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
-				}
-			}
-		case "rate_20":
-			for vmNumber = 1; vmNumber < 11; vmNumber++ {
-				vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
-				cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
-				if err := cSender.Cmd("CMD 0.2"); err != nil {
-					log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
-				}
-			}
+		// case "rate_0":
+		// 	for vmNumber = 1; vmNumber < 11; vmNumber++ {
+		// 		vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
+		// 		cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
+		// 		if err := cSender.Cmd("CMD 0.0"); err != nil {
+		// 			log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
+		// 		}
+		// 	}
+		// case "rate_1":
+		// 	for vmNumber = 1; vmNumber < 11; vmNumber++ {
+		// 		vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
+		// 		cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
+		// 		if err := cSender.Cmd("CMD 0.01"); err != nil {
+		// 			log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
+		// 		}
+		// 	}
+		// case "rate_5":
+		// 	for vmNumber = 1; vmNumber < 11; vmNumber++ {
+		// 		vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
+		// 		cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
+		// 		if err := cSender.Cmd("CMD 0.05"); err != nil {
+		// 			log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
+		// 		}
+		// 	}
+		// case "rate_10":
+		// 	for vmNumber = 1; vmNumber < 11; vmNumber++ {
+		// 		vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
+		// 		cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
+		// 		if err := cSender.Cmd("CMD 0.1"); err != nil {
+		// 			log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
+		// 		}
+		// 	}
+		// case "rate_15":
+		// 	for vmNumber = 1; vmNumber < 11; vmNumber++ {
+		// 		vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
+		// 		cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
+		// 		if err := cSender.Cmd("CMD 0.15"); err != nil {
+		// 			log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
+		// 		}
+		// 	}
+		// case "rate_20":
+		// 	for vmNumber = 1; vmNumber < 11; vmNumber++ {
+		// 		vmdomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
+		// 		cSender := sender.NewSender(vmdomain, sender.CmdPort, domain)
+		// 		if err := cSender.Cmd("CMD 0.2"); err != nil {
+		// 			log.Printf("Failed to send command to %s. With error: %s\n", vmdomain, err.Error())
+		// 		}
+		// 	}
 		default:
 			fmt.Println("Unknown command.")
 		}
@@ -323,5 +379,26 @@ func startFailureDetect(ml *membership.MembershipList, myDomain string) {
 		}
 
 		time.Sleep(sender.FD_period) // Wait before the next ping
+	}
+}
+
+func joinFD(ml *membership.MembershipList, domain string) {
+	s := sender.NewSender(sender.IntroducerAddr, sender.GossipPort, domain)
+	err := s.Ping(10 * time.Second)
+	if err != nil {
+		fmt.Println("Failed to join, introducer offline")
+	} else {
+		err := s.Gossip(time.Now(), domain, "JOIN", domain, 0)
+		if err != nil {
+			feedback := err.Error()
+			if strings.HasPrefix(feedback, "APPROVED") {
+				fmt.Println("Joined!")
+				var copyMembership string
+				fmt.Sscanf(feedback, "APPROVED %s", &copyMembership)
+				ml.Parse(copyMembership)
+			} else {
+				fmt.Println("Failed to join, introducer not in network")
+			}
+		}
 	}
 }

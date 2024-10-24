@@ -228,7 +228,7 @@ func (r *Receiver) Listen(ml *membership.MembershipList, suschan chan bool) {
 				} else {
 					log.Println("Failed to parse target address:", err)
 				}
-			} else if strings.HasPrefix(message, "CMD") {
+			} else if strings.HasPrefix(message, "CMD") { // Legacy in failure detection testing
 				var cmd string
 				_, err := fmt.Sscanf(message, "CMD %s", &cmd)
 				if err == nil {

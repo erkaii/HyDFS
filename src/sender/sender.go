@@ -11,7 +11,7 @@ const (
 	PingPort       = "1234"
 	RepingPort     = "1235"
 	GossipPort     = "1236"
-	CmdPort        = "1237"
+	CmdPort        = "1237" // Used in HyDFS to listen for commands from clients
 	G              = 4
 	GossipDuration = 3 * time.Second
 	IntroducerAddr = "fa24-cs425-6801.cs.illinois.edu"
