@@ -68,7 +68,7 @@ func main() {
 	joinFD(ml, domain)
 
 	// File server initialization
-	fs := filesystem.FileServerInit(vmNumber)
+	fs := filesystem.FileServerInit(ml, vmNumber)
 	fmt.Println("The id is ", fs.GetId())
 
 	// User input loop for commands
@@ -90,6 +90,7 @@ func main() {
 				fmt.Println("Usage: create localfilename HyDFSfilename")
 				continue
 			}
+			fmt.Println("filename ", words[1], " has hashkey ", filesystem.HashKey(words[1]))
 		case "get":
 			if len(words) != 3 {
 				fmt.Println("Usage: get HyDFSfilename localfilename")
@@ -142,24 +143,7 @@ func main() {
 				fmt.Println("Failed to join, you are already in the network!")
 				continue
 			}
-			s := sender.NewSender(sender.IntroducerAddr, sender.GossipPort, domain)
-			err := s.Ping(10 * time.Second)
-			if err != nil {
-				fmt.Println("Failed to join, introducer offline")
-			} else {
-				err := s.Gossip(time.Now(), domain, "JOIN", domain, 0)
-				if err != nil {
-					feedback := err.Error()
-					if strings.HasPrefix(feedback, "APPROVED") {
-						fmt.Println("Joined!")
-						var copyMembership string
-						fmt.Sscanf(feedback, "APPROVED %s", &copyMembership)
-						ml.Parse(copyMembership)
-					} else {
-						fmt.Println("Failed to join, introducer not in network")
-					}
-				}
-			}
+			joinFD(ml, domain)
 		case "leave":
 			if len(ml.Members) == 0 {
 				fmt.Println("Failed to leave, you are not in the network!")
