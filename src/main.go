@@ -90,7 +90,7 @@ func main() {
 				fmt.Println("Usage: create localfilename HyDFSfilename")
 				continue
 			}
-			fmt.Println("filename ", words[1], " has hashkey ", filesystem.HashKey(words[1]))
+			fmt.Println("filename ", words[2], " has hashkey ", filesystem.HashKey(words[2]))
 		case "get":
 			if len(words) != 3 {
 				fmt.Println("Usage: get HyDFSfilename localfilename")
