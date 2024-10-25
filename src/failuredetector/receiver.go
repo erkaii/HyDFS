@@ -1,8 +1,6 @@
-package receiver
+package failuredetector
 
 import (
-	"HyDFS/src/membership"
-	"HyDFS/src/sender"
 	"fmt"
 	"log"
 	"math/rand"
@@ -53,7 +51,7 @@ func NewReceiver(myaddr string, port string) *Receiver {
 }
 
 // Listen starts the UDP server to listen for incoming messages
-func (r *Receiver) Listen(ml *membership.MembershipList, suschan chan bool) {
+func (r *Receiver) Listen(ml *MembershipList, suschan chan bool) {
 	addr, err := net.ResolveUDPAddr("udp", r.localhost+":"+r.port)
 	if err != nil {
 		log.Fatal("Error (Listen) resolving UDP address:", err)
@@ -85,7 +83,7 @@ func (r *Receiver) Listen(ml *membership.MembershipList, suschan chan bool) {
 		// Print the bandwidth
 		// fmt.Println(len(message), time.Now())
 
-		if len(ml.Members) > 0 || r.myaddress == sender.IntroducerAddr || strings.HasPrefix(message, "SUS") { // Only handle the requests if the node is in the network/ is the introducer
+		if len(ml.Members) > 0 || r.myaddress == IntroducerAddr || strings.HasPrefix(message, "SUS") { // Only handle the requests if the node is in the network/ is the introducer
 			if strings.HasPrefix(message, "PING") {
 				var senderLocalAddr string
 				_, err := fmt.Sscanf(message, "PING from %s", &senderLocalAddr)
@@ -101,7 +99,7 @@ func (r *Receiver) Listen(ml *membership.MembershipList, suschan chan bool) {
 				_, err := fmt.Sscanf(message, "REPING from %s to %s", &requestAddr, &targetAddr)
 				if err == nil {
 					log.Printf("Reping Request from %s to ping %s received", requestAddr, targetAddr)
-					s := sender.NewSender(targetAddr, sender.PingPort, r.myaddress)
+					s := NewSender(targetAddr, PingPort, r.myaddress)
 					err = s.Ping(3 * time.Second)
 					if err != nil {
 						log.Printf("Ping to %s failed: %s\n", targetAddr, err)
@@ -133,23 +131,23 @@ func (r *Receiver) Listen(ml *membership.MembershipList, suschan chan bool) {
 					parsedTime, _ := time.Parse(time.RFC3339, timeStamp)
 					switch state {
 					case "FAILED":
-						if exists && memberState != membership.Failed {
-							ml.UpdateMember(topicAddr, membership.Failed, parsedTime, ml.GetIncNumber(topicAddr)) // Failed, we don't actually care about the incNum
+						if exists && memberState != Failed {
+							ml.UpdateMember(topicAddr, Failed, parsedTime, ml.GetIncNumber(topicAddr)) // Failed, we don't actually care about the incNum
 							log.Printf("Failure detection of %s at %s\n", topicAddr, time.Now())
 						}
 					case "SUSPECTED":
-						if exists && memberState != membership.Failed {
+						if exists && memberState != Failed {
 
 							// Check if it is me
 							if topicAddr == r.myaddress {
-								ml.UpdateMember(r.myaddress, membership.Alive, time.Now(), ml.GetIncNumber(r.myaddress)+1) // Increase my incNumber
+								ml.UpdateMember(r.myaddress, Alive, time.Now(), ml.GetIncNumber(r.myaddress)+1) // Increase my incNumber
 								// Pass this alive messages to others rather than the suspecion message
 								inc = ml.GetIncNumber(r.myaddress)
 								state = "ALIVE"
 							} else {
-								if memberState == membership.Alive {
+								if memberState == Alive {
 									if inc >= ml.GetIncNumber(topicAddr) {
-										ml.UpdateMember(topicAddr, membership.Suspected, parsedTime, inc)
+										ml.UpdateMember(topicAddr, Suspected, parsedTime, inc)
 										log.Printf("Failure suspicion of %s at %s\n", topicAddr, time.Now())
 									} else {
 										state = "ALIVE"
@@ -159,7 +157,7 @@ func (r *Receiver) Listen(ml *membership.MembershipList, suschan chan bool) {
 									}
 								} else {
 									if inc > ml.GetIncNumber(topicAddr) {
-										ml.UpdateMember(topicAddr, membership.Suspected, parsedTime, inc)
+										ml.UpdateMember(topicAddr, Suspected, parsedTime, inc)
 									} else {
 										inc = ml.GetIncNumber(topicAddr)
 										tstamp, _ := ml.GetMemberTimestamp(topicAddr)
@@ -169,10 +167,10 @@ func (r *Receiver) Listen(ml *membership.MembershipList, suschan chan bool) {
 							}
 						}
 					case "ALIVE":
-						if exists && memberState != membership.Failed {
-							if memberState == membership.Suspected {
+						if exists && memberState != Failed {
+							if memberState == Suspected {
 								if inc > ml.GetIncNumber(topicAddr) {
-									ml.UpdateMember(topicAddr, membership.Alive, parsedTime, inc)
+									ml.UpdateMember(topicAddr, Alive, parsedTime, inc)
 									log.Printf("Canceling suspicion of %s at %s\n", topicAddr, time.Now())
 								} else {
 									state = "SUSPECTED"
@@ -182,7 +180,7 @@ func (r *Receiver) Listen(ml *membership.MembershipList, suschan chan bool) {
 								}
 							} else {
 								if inc > ml.GetIncNumber(topicAddr) {
-									ml.UpdateMember(topicAddr, membership.Alive, parsedTime, inc)
+									ml.UpdateMember(topicAddr, Alive, parsedTime, inc)
 								} else {
 									inc = ml.GetIncNumber(topicAddr)
 									tstamp, _ := ml.GetMemberTimestamp(topicAddr)
@@ -191,34 +189,34 @@ func (r *Receiver) Listen(ml *membership.MembershipList, suschan chan bool) {
 							}
 						}
 					case "JOIN":
-						if r.myaddress == sender.IntroducerAddr {
+						if r.myaddress == IntroducerAddr {
 							if len(ml.Members) == 0 && topicAddr != r.myaddress {
 								conn.WriteToUDP([]byte(fmt.Sprintf("REFUSED")), senderAddr)
 								continue // Don't pass on the gossip
 							} else { // Add the member
 								ml.RemoveMember(topicAddr)
-								ml.AddMember(topicAddr, membership.Alive, 0) // Initializing, incNum is 0
+								ml.AddMember(topicAddr, Alive, 0) // Initializing, incNum is 0
 								// Pass a copy of the membership list back to the new comer.
 								copyMembership := ml.Stringfy()
 								conn.WriteToUDP([]byte(fmt.Sprintf("APPROVED "+copyMembership)), senderAddr)
 							}
 						} else {
 							ml.RemoveMember(topicAddr)
-							ml.AddMember(topicAddr, membership.Alive, 0) // Initializing, incNum is 0
+							ml.AddMember(topicAddr, Alive, 0) // Initializing, incNum is 0
 						}
 					}
 
 					currentTime := time.Now()
-					if currentTime.Sub(parsedTime) <= sender.GossipDuration {
+					if currentTime.Sub(parsedTime) <= GossipDuration {
 						excludeList := []string{r.myaddress, requestAddr, topicAddr}
 						if state == "JOIN" {
-							excludeList = append(excludeList, sender.IntroducerAddr)
+							excludeList = append(excludeList, IntroducerAddr)
 						}
-						gMembers := ml.GetRandomMembers(sender.G, excludeList)
+						gMembers := ml.GetRandomMembers(G, excludeList)
 						log.Printf("Passing on gossip of timestamp %s from %s about %s with: \n", timeStamp, requestAddr, topicAddr)
 						for i, gMember := range gMembers {
 							log.Println(i, gMember.IP)
-							gSender := sender.NewSender(gMember.IP, sender.GossipPort, r.myaddress)
+							gSender := NewSender(gMember.IP, GossipPort, r.myaddress)
 							if err := gSender.Gossip(parsedTime, topicAddr, state, requestAddr, inc); err != nil {
 								log.Printf("Failed to send gossip to %s. With error: %s\n", gMember.IP, err.Error())
 							}

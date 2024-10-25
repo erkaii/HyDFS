@@ -1,7 +1,7 @@
-package filesystem
+package main
 
 import (
-	"HyDFS/src/membership"
+	"HyDFS/failuredetector"
 	"crypto/sha256"
 	"encoding/hex"
 	"math/big"
@@ -16,12 +16,12 @@ type File struct {
 }
 
 type FileServer struct {
-	aliveml *membership.MembershipList
+	aliveml *failuredetector.MembershipList
 	files   [MAX_FILE_NUM]File
 	id      int
 }
 
-func FileServerInit(ml *membership.MembershipList, id int) *FileServer {
+func FileServerInit(ml *failuredetector.MembershipList, id int) *FileServer {
 	return &FileServer{
 		id:      id,
 		files:   [MAX_FILE_NUM]File{},

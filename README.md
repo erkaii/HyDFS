@@ -2,6 +2,13 @@
 Hybrid Distributed File System built for CS 425 MP3
 
 ---
+## Run
+Go to ```src``` folder
+
+    go run . {n}
+
+where n is the machine id from 1 to 10.
+
 ## Design
 1. The total number of servers is expected to be not larger than 10.
 2. All servers use a pre-determined consistent hashing to map servers and files to points on a ring.

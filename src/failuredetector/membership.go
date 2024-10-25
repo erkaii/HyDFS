@@ -1,4 +1,4 @@
-package membership
+package failuredetector
 
 import (
 	"fmt"
