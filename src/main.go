@@ -42,12 +42,13 @@ func main() {
 	}
 
 	// Construct the domain name based on the VM number
-	domain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
+	mydomain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
 
 	ml := failuredetector.NewMembershipList()
 	go failuredetector.Failuredetect(ml)
 
 	fs := FileServerInit(ml, vmNumber)
+	go FileServerLaunch(fs)
 
 	// User input loop for commands
 	reader := bufio.NewReader(os.Stdin)
@@ -67,6 +68,11 @@ func main() {
 			if len(words) != 3 {
 				fmt.Println("Usage: create localfilename HyDFSfilename")
 				continue
+			}
+
+			err := CreateFileClient(words[1], words[2], mydomain)
+			if err != nil {
+				log.Printf("Failed to create file: %s\n", err.Error())
 			}
 		case "get":
 			if len(words) != 3 {
@@ -104,7 +110,6 @@ func main() {
 				fmt.Println("Usage: list_mem_ids")
 				continue
 			}
-			fmt.Println("My domain: ", domain)
 			fmt.Println(fs.id)
 		case "list_mem":
 			ml.Display()
