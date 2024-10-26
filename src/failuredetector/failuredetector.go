@@ -44,7 +44,7 @@ func Failuredetect(ml *MembershipList) {
 	joinFD(ml, domain)
 
 	for {
-		time.Sleep(10 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 }
 

@@ -8,17 +8,19 @@ import (
 )
 
 const (
+	REP_NUM      = 3
 	MAX_FILE_NUM = 1000
 )
 
 type File struct {
-	filename string
+	filename string // Gives the path to local file on the server
 }
 
 type FileServer struct {
-	aliveml *failuredetector.MembershipList
-	files   [MAX_FILE_NUM]File
-	id      int
+	aliveml   *failuredetector.MembershipList
+	pred_list [REP_NUM]int
+	files     [MAX_FILE_NUM]File
+	id        int
 }
 
 func FileServerInit(ml *failuredetector.MembershipList, id int) *FileServer {
