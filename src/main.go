@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -25,21 +26,28 @@ func main() {
 	}()
 
 	if len(os.Args) < 2 {
-		log.Fatal("Usage: go run main.go <vm_number>")
+		log.Fatal("Usage: go run . <vm_number>")
 	}
-
 	logFile, err := os.OpenFile("../machine.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatalf("Failed to open log file: %s", err)
 	}
 	defer logFile.Close()
-
 	log.SetOutput(logFile)
 
-	fmt.Println(HashKey("xyz"))
+	// Get the second argument which is the VM number
+	vmNumber, err := strconv.Atoi(os.Args[1])
+	if err != nil || vmNumber < 1 || vmNumber > 10 {
+		log.Fatal("The VM number must be an integer between 1 and 10.")
+	}
+
+	// Construct the domain name based on the VM number
+	domain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
 
 	ml := failuredetector.NewMembershipList()
 	go failuredetector.Failuredetect(ml)
+
+	fs := FileServerInit(ml, vmNumber)
 
 	// User input loop for commands
 	reader := bufio.NewReader(os.Stdin)
@@ -96,7 +104,8 @@ func main() {
 				fmt.Println("Usage: list_mem_ids")
 				continue
 			}
-
+			fmt.Println("My domain: ", domain)
+			fmt.Println(fs.id)
 		case "list_mem":
 			ml.Display()
 
