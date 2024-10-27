@@ -113,7 +113,8 @@ func main() {
 			fmt.Println(fs.id)
 		case "list_mem":
 			ml.Display()
-
+			l := ml.Alive_Ids()
+			fmt.Println(l)
 		default:
 			fmt.Println("Unknown command.")
 		}

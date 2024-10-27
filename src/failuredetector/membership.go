@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -267,4 +268,27 @@ func (ml *MembershipList) CheckMemberStatus(domain string) (string, bool) {
 		return member.State, true
 	}
 	return "", false // Member does not exist
+}
+
+func (ml *MembershipList) Alive_Ids() []int {
+	ml.mu.Lock()         // Acquire the lock before reading the map
+	defer ml.mu.Unlock() // Ensure the lock is released after the operation
+
+	var ids []int
+	for _, member := range ml.Members {
+		if member.State == Failed {
+			continue
+		}
+		s := member.IP
+
+		parts := strings.Split(s, "-")
+		if len(parts) >= 3 {
+			twoDigitStr := parts[2][2:4] // Extract the "68" part as a string
+			if id, err := strconv.Atoi(twoDigitStr); err == nil {
+				ids = append(ids, id) // Collect the integer
+			}
+		}
+	}
+	sort.Ints(ids)
+	return ids
 }
