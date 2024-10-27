@@ -5,7 +5,6 @@ import (
 	"log"
 	"math/rand"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -51,7 +50,7 @@ func NewReceiver(myaddr string, port string) *Receiver {
 }
 
 // Listen starts the UDP server to listen for incoming messages
-func (r *Receiver) Listen(ml *MembershipList, suschan chan bool) {
+func (r *Receiver) Listen(ml *MembershipList) {
 	addr, err := net.ResolveUDPAddr("udp", r.localhost+":"+r.port)
 	if err != nil {
 		log.Fatal("Error (Listen) resolving UDP address:", err)
@@ -225,22 +224,6 @@ func (r *Receiver) Listen(ml *MembershipList, suschan chan bool) {
 
 				} else {
 					log.Println("Failed to parse target address:", err)
-				}
-			} else if strings.HasPrefix(message, "CMD") { // Legacy in failure detection testing
-				var cmd string
-				_, err := fmt.Sscanf(message, "CMD %s", &cmd)
-				if err == nil {
-					if cmd == "ON" {
-						suschan <- true
-					} else if cmd == "OFF" {
-						suschan <- false
-					} else {
-						floatVal, err := strconv.ParseFloat(cmd, 64) // 64 indicates we're parsing as a float64
-						if err == nil {
-							dropRate = floatVal
-							fmt.Printf("Message drop rate set to %f\n", dropRate)
-						}
-					}
 				}
 			} else {
 				log.Println("Unknown message format:", message)

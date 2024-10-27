@@ -10,14 +10,19 @@ import (
 )
 
 const (
-	N             = 10              // Number of machines
-	K             = 3               // Number of random machines to ask for a ping
-	Timeout       = 2 * time.Second // Timeout for receiving an ACK
-	RepingTimeout = 2 * time.Second
+	N              = 10              // Number of machines
+	K              = 3               // Number of random machines to ask for a ping
+	Timeout        = 2 * time.Second // Timeout for receiving an ACK
+	RepingTimeout  = 2 * time.Second
+	PingPort       = "1234"
+	RepingPort     = "1235"
+	GossipPort     = "1236"
+	CmdPort        = "1237" // Used in HyDFS to listen for commands from clients
+	G              = 4
+	GossipDuration = 3 * time.Second
+	IntroducerAddr = "fa24-cs425-6801.cs.illinois.edu"
+	FD_period      = time.Second
 )
-
-var suschan = make(chan bool)
-var sus_mode = false
 
 func Failuredetect(ml *MembershipList) {
 	// Get the second argument which is the VM number
@@ -32,13 +37,13 @@ func Failuredetect(ml *MembershipList) {
 	// ml := NewMembershipList()
 
 	// Failure detection go routains
-	go handleSus()
 	go startListenPing(domain, ml)
 	go startListenPingRequest(domain, ml)
 	go startListenGossiping(domain, ml)
 	go startListenCmd(domain, ml)
-	go updateFailure(domain, ml)
 	go startFailureDetect(ml, domain)
+
+	time.Sleep(500 * time.Millisecond)
 
 	// Sent join request automatically
 	joinFD(ml, domain)
@@ -50,54 +55,22 @@ func Failuredetect(ml *MembershipList) {
 
 func startListenPing(myDomain string, ml *MembershipList) {
 	r := NewReceiver(myDomain, PingPort)
-	go r.Listen(ml, suschan)
+	go r.Listen(ml)
 }
 
 func startListenPingRequest(myDomain string, ml *MembershipList) {
 	r := NewReceiver(myDomain, RepingPort)
-	go r.Listen(ml, suschan)
+	go r.Listen(ml)
 }
 
 func startListenGossiping(myDomain string, ml *MembershipList) {
 	r := NewReceiver(myDomain, GossipPort)
-	go r.Listen(ml, suschan)
+	go r.Listen(ml)
 }
 
 func startListenCmd(myDomain string, ml *MembershipList) {
 	r := NewReceiver(myDomain, CmdPort)
-	go r.Listen(ml, suschan)
-}
-
-func handleSus() {
-	for {
-		select {
-		case suspend := <-suschan:
-			sus_mode = suspend
-		}
-	}
-}
-
-func updateFailure(myDomain string, ml *MembershipList) {
-	for {
-		// Update all the suspected nodes to failed if timeout
-		currentTime := time.Now()
-		for _, checkmember := range ml.Members {
-			if checkmember.State == Suspected && currentTime.Sub(checkmember.Timestamp) >= Sus_timeout {
-				log.Printf("Failure confirmed for %s due to timeout.\n", checkmember.IP)
-				ml.UpdateMember(checkmember.IP, Failed, time.Now(), ml.GetIncNumber(checkmember.IP))
-
-				gMembers := ml.GetRandomMembers(G, []string{myDomain, checkmember.IP})
-				log.Printf("Gossiping failure confirmation of %s with: \n", checkmember.IP)
-				for i, gMember := range gMembers {
-					log.Println(i, gMember.IP)
-					gSender := NewSender(gMember.IP, GossipPort, myDomain)
-					if err := gSender.Gossip(time.Now(), checkmember.IP, "FAILED", myDomain, ml.GetIncNumber(checkmember.IP)); err != nil {
-						log.Printf("Failed to send gossip to %s.\n", gMember.IP)
-					}
-				}
-			}
-		}
-	}
+	go r.Listen(ml)
 }
 
 func startFailureDetect(ml *MembershipList, myDomain string) {
@@ -140,13 +113,6 @@ func startFailureDetect(ml *MembershipList, myDomain string) {
 				// log.Printf("Marking %s as failed.\n", member.IP)
 				updatedState := Failed
 				gossipCmd := "FAILED"
-				if sus_mode {
-					if member.State == Suspected {
-						continue
-					}
-					updatedState = Suspected
-					gossipCmd = "SUSPECTED"
-				}
 
 				ml.UpdateMember(member.IP, updatedState, time.Now(), ml.GetIncNumber(member.IP))
 

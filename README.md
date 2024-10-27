@@ -9,9 +9,6 @@ Go to ```src``` folder
 
 where n is the machine id from 1 to 10.
 
-## Known Issues
-1. Failure detection join sometimes have delays.
-
 ## Design
 1. The total number of servers is expected to be not larger than 10.
 2. All servers use a pre-determined consistent hashing to map servers and files to points on a ring.

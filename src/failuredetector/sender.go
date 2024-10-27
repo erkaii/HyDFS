@@ -7,18 +7,6 @@ import (
 	"time"
 )
 
-const (
-	PingPort       = "1234"
-	RepingPort     = "1235"
-	GossipPort     = "1236"
-	CmdPort        = "1237" // Used in HyDFS to listen for commands from clients
-	G              = 4
-	GossipDuration = 3 * time.Second
-	IntroducerAddr = "fa24-cs425-6801.cs.illinois.edu"
-	Sus_timeout    = 6 * time.Second
-	FD_period      = time.Second
-)
-
 type Sender struct {
 	targetAddr string
 	localAddr  string
@@ -43,6 +31,8 @@ func (s *Sender) Ping(ddl time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("Error (Ping) dialing target address: %v", err)
 	}
+
+	defer conn.Close()
 
 	_, err = conn.Write([]byte(fmt.Sprintf("PING from %s", s.localAddr)))
 	if err != nil {
@@ -78,6 +68,8 @@ func (s *Sender) Reping(ddl time.Duration, repingaddr string) error {
 		return fmt.Errorf("Error (RePing) dialing target address: %v", err)
 	}
 
+	defer conn.Close()
+
 	_, err = conn.Write([]byte(fmt.Sprintf("REPING from %s to %s", s.localAddr, repingaddr)))
 	if err != nil {
 		return fmt.Errorf("Error sending RePing request: %v", err)
@@ -111,6 +103,8 @@ func (s *Sender) Gossip(timeStamp time.Time, topicaddr string, state string, sou
 	if err != nil {
 		return fmt.Errorf("Error (Gossiping) dialing target address: %v", err)
 	}
+
+	defer conn.Close()
 
 	_, err = conn.Write([]byte(fmt.Sprintf("GOSSIP from %s passed by %s update %s %s incNum %d timestamp %s", source, s.localAddr, topicaddr, state, inc, timeStamp.Format(time.RFC3339))))
 	if err != nil {
@@ -149,6 +143,8 @@ func (s *Sender) Cmd(cmd string) error {
 	if err != nil {
 		return fmt.Errorf("Error (Cmd) dialing target address: %v", err)
 	}
+
+	defer conn.Close()
 
 	_, err = conn.Write([]byte(fmt.Sprintf(cmd)))
 	if err != nil {
