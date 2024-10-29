@@ -188,6 +188,105 @@ func CreateFileClient(localfilename string, HyDFSfilename string, myDomain strin
 	return nil
 }
 
+func GetFileClient(localfilename string, HyDFSfilename string, myDomain string) error {
+
+	//server_id := HashKey(HyDFSfilename)
+	list := make([]int, MAX_SERVER)
+	for i := 0; i < MAX_SERVER; i++ {
+		list[i] = i + 1
+	}
+	server_id := findRange(list, HashKey(HyDFSfilename))
+
+	// Iterate through the possible server ids to find the server to send request to
+	for i := 0; i < MAX_SERVER; i++ {
+		// Make use of Ping feature from failure detector
+		s := failuredetector.NewSender(id_to_domain(server_id), failuredetector.PingPort, myDomain)
+		fmt.Println(id_to_domain(server_id))
+		err := s.Ping(failuredetector.Timeout)
+		if err == nil { // Ping succeeded
+			break
+		}
+
+		server_id = server_id%MAX_SERVER + 1 // I know this looks suspicious
+		if i == MAX_SERVER-1 {
+			return errors.New("No server alive!")
+		}
+	}
+
+	client, err := rpc.DialHTTP("tcp", id_to_domain(server_id)+":3333")
+	if err != nil {
+		log.Fatal("Client dialing:", err)
+	}
+
+	args := &LR_files{localfilename, HyDFSfilename}
+	var vm_id int
+	err = client.Call("FService.SearchFile", args, &vm_id)
+	if err != nil {
+		return err
+	}
+
+	if vm_id == -1 {
+		return errors.New("File already exists!")
+	}
+
+	if vm_id != server_id {
+		client, err = rpc.DialHTTP("tcp", id_to_domain(vm_id)+":3333")
+		if err != nil {
+			log.Fatal("Client dialing:", err)
+		}
+
+		// args = &LR_files{localfilename, HyDFSfilename}
+		err = client.Call("FService.SearchFile", args, &vm_id)
+		if err != nil {
+			return err
+		}
+
+		if vm_id == -1 {
+			return errors.New("File already exists!")
+		}
+	}
+
+	// Now start writing to the file.
+	fmt.Println("Yes, you can write to vm", vm_id)
+
+	// Open the local file to read its content
+	fileContent, err := os.ReadFile(localfilename)
+	if err != nil {
+		fmt.Println("Failed to open local file!")
+		return fmt.Errorf("failed to read local file: %v", err)
+	}
+
+	// Prepare HTTP POST request
+	url := fmt.Sprintf("http://%s:8080/upload", id_to_domain(vm_id))
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(fileContent))
+	if err != nil {
+		fmt.Println("Failed to create HTTP request!")
+		return fmt.Errorf("failed to create HTTP request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("HyDFSfilename", HyDFSfilename)
+
+	// Send the HTTP request
+	clienthttp := &http.Client{}
+	resp, err := clienthttp.Do(req)
+	if err != nil {
+		fmt.Println("Failed to send HTTP request")
+		return fmt.Errorf("failed to send HTTP request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response from the server
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Println("Error from server:", string(body))
+		return fmt.Errorf("server error: %s", string(body))
+	}
+
+	fmt.Println("File successfully uploaded to server.")
+
+	return nil
+}
+
 // Server side funcs
 func FileServerLaunch(fs *FileServer) {
 	fservice := &FService{fs: fs}

@@ -79,6 +79,10 @@ func main() {
 				fmt.Println("Usage: get HyDFSfilename localfilename")
 				continue
 			}
+			err := GetFileClient(words[1], words[2], mydomain)
+			if err != nil {
+				log.Printf("Failed to get file: %s\n", err.Error())
+			}
 
 		case "append":
 			if len(words) != 3 {
