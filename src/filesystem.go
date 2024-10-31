@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	REP_NUM    = 3
-	MAX_SERVER = 10
+	REP_NUM      = 3
+	MAX_SERVER   = 10
+	NUM_REPLICAS = 2
 )
 
 type File struct {
@@ -57,7 +58,7 @@ func HashKey(input string) int {
 
 	// Mod the big.Int by 1000 and add 1 to map to the range [1, 1000]
 	result := bigIntHash.Mod(bigIntHash, big.NewInt(1000)).Int64() + 1
-
+	//print("hash key", int(result))
 	return int(result)
 }
 
@@ -82,10 +83,48 @@ func findRange(lints []int, k int) int {
 			upperBound = 1000 // Ensure last range includes 1000
 		}
 		if k >= lowerBound && k <= upperBound {
+
 			return lints[i]
 		}
 	}
 	return -1 // If `k` is out of range, though unlikely
+}
+
+// Helper function to handle the file upload via HTTP POST
+func uploadFile(url, localfilename, HyDFSfilename string) error {
+	fileContent, err := os.ReadFile(localfilename)
+	if err != nil {
+		//fmt.Println("Failed to open local file!", localfilename, err)
+		return fmt.Errorf("failed to read local file: %v", err)
+	}
+
+	// Prepare HTTP POST request
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(fileContent))
+	if err != nil {
+		//fmt.Println("Failed to create HTTP request!")
+		return fmt.Errorf("failed to create HTTP request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("HyDFSfilename", HyDFSfilename)
+
+	// Send the HTTP request
+	clienthttp := &http.Client{}
+	resp, err := clienthttp.Do(req)
+	if err != nil {
+		//	fmt.Println("Failed to send HTTP request")
+		return fmt.Errorf("failed to send HTTP request: %v", err)
+	}
+	defer resp.Body.Close()
+	//fmt.Println("File successfully uploaded to server.", vm_id)
+
+	// Check response from the server
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		//fmt.Println("Error from server:", string(body))
+		return fmt.Errorf("server error: %s", string(body))
+	}
+	return nil
 }
 
 // Hash the filename to determine which server will handle the file.
@@ -95,7 +134,7 @@ func findRange(lints []int, k int) int {
 // Receive confirmation from the server that the file was successfully uploaded.
 
 // Client side funcs
-func CreateFileClient(localfilename string, HyDFSfilename string, myDomain string) error {
+func CreateFileClient(localfilename string, HyDFSfilename string, myDomain string, fs *FileServer) error {
 
 	//server_id := HashKey(HyDFSfilename)
 	// list of servers for consistent hashing
@@ -162,60 +201,54 @@ func CreateFileClient(localfilename string, HyDFSfilename string, myDomain strin
 	// Now start writing to the file.
 	fmt.Println("Yes, you can write to vm", vm_id)
 
-	// Open the local file to read its content
-	fileContent, err := os.ReadFile(localfilename)
-	if err != nil {
-		fmt.Println("Failed to open local file!")
-		return fmt.Errorf("failed to read local file: %v", err)
-	}
-
-	// Prepare HTTP POST request
+	//upload the file to primary node
 	url := fmt.Sprintf("http://%s:8080/upload", id_to_domain(vm_id))
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(fileContent))
+	err = uploadFile(url, localfilename, HyDFSfilename)
+
 	if err != nil {
-		fmt.Println("Failed to create HTTP request!")
-		return fmt.Errorf("failed to create HTTP request: %v", err)
+		log.Printf("Warning: Failed to upload the file on:", id_to_domain(vm_id))
+		fmt.Printf("Warning: Failed to upload the file on:", id_to_domain(vm_id))
 	}
-	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("HyDFSfilename", HyDFSfilename)
+	//Initiate replication after confirming owner upload success
+	//	fmt.Println("membership list", fs.aliveml.Members)
+	activeMembers := fs.aliveml.GetActiveMembers()
+	fmt.Println("activeMembers", activeMembers)
+	successors := findSuccessors(vm_id, activeMembers, NUM_REPLICAS)
+	for _, successorID := range successors {
+		successorDomain := id_to_domain(successorID)
+		//fmt.Println("replica machine", successorDomain)
+		replicateURL := fmt.Sprintf("http://%s:8080/upload", successorDomain)
 
-	// Send the HTTP request
-	clienthttp := &http.Client{}
-	resp, err := clienthttp.Do(req)
-	if err != nil {
-		fmt.Println("Failed to send HTTP request")
-		return fmt.Errorf("failed to send HTTP request: %v", err)
+		err = uploadFile(replicateURL, localfilename, HyDFSfilename)
+		if err != nil {
+			log.Printf("Warning: Failed to replicate file to successor %s: %v", successorDomain, err)
+			continue // Skip this successor if replication fails
+		}
+		fmt.Println("file uploaded on replica", successorDomain)
 	}
-	defer resp.Body.Close()
-
-	// Check response from the server
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Println("Error from server:", string(body))
-		return fmt.Errorf("server error: %s", string(body))
-	}
-
-	fmt.Println("File successfully uploaded to server.")
 
 	return nil
 }
 
-func GetFileClient(localfilename string, HyDFSfilename string, myDomain string) error {
+func GetFileClient(HyDFSfilename string, localfilename string, myDomain string) error {
 
 	//server_id := HashKey(HyDFSfilename)
 	list := make([]int, MAX_SERVER)
 	for i := 0; i < MAX_SERVER; i++ {
 		list[i] = i + 1
 	}
+	//	fmt.Println("HyDFSfilename", HyDFSfilename, "n", len(list))
 	server_id := findRange(list, HashKey(HyDFSfilename))
 
+	//fmt.Println("server_id", server_id)
 	// Iterate through the possible server ids to find the server to send request to
 	for i := 0; i < MAX_SERVER; i++ {
 		// Make use of Ping feature from failure detector
 		s := failuredetector.NewSender(id_to_domain(server_id), failuredetector.PingPort, myDomain)
-		fmt.Println(id_to_domain(server_id))
+		fmt.Println("pinging to", id_to_domain(server_id), "successor") // TODO: this is not picking up successor correctly. when vm10 wasnt alive it picked vm8
 		err := s.Ping(failuredetector.Timeout)
 		if err == nil { // Ping succeeded
+			fmt.Println("ping to", id_to_domain(server_id), "succeeded")
 			break
 		}
 
@@ -237,11 +270,15 @@ func GetFileClient(localfilename string, HyDFSfilename string, myDomain string) 
 		return err
 	}
 
+	//file exists if vm==-1
 	if vm_id == -1 {
-		return errors.New("File already exists!")
+		fmt.Println("file exists in this vm", server_id)
+		vm_id = server_id
 	}
 
 	if vm_id != server_id {
+		//save the real vm info before dialing in as if vm ==-1 you dont have real vm info
+		server_id = vm_id
 		client, err = rpc.DialHTTP("tcp", id_to_domain(vm_id)+":3333")
 		if err != nil {
 			log.Fatal("Client dialing:", err)
@@ -254,47 +291,50 @@ func GetFileClient(localfilename string, HyDFSfilename string, myDomain string) 
 		}
 
 		if vm_id == -1 {
+			vm_id = server_id
 			return errors.New("File already exists!")
+
 		}
 	}
 
-	// Now start writing to the file.
-	fmt.Println("Yes, you can write to vm", vm_id)
+	// Now start getting the file.
+	fmt.Println("Yes, you can get file from", vm_id)
 
-	// Open the local file to read its content
-	fileContent, err := os.ReadFile(localfilename)
 	if err != nil {
-		fmt.Println("Failed to open local file!")
-		return fmt.Errorf("failed to read local file: %v", err)
+		fmt.Println("Failed to open HyDFS file because:", err)
+		return fmt.Errorf("failed to read HyDFS file: %v", err)
 	}
 
-	// Prepare HTTP POST request
-	url := fmt.Sprintf("http://%s:8080/upload", id_to_domain(vm_id))
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(fileContent))
+	// Prepare HTTP GET  request
+	url := fmt.Sprintf("http://%s:8080/download?filename=%s", id_to_domain(vm_id), HyDFSfilename)
+	resp, err := http.Get((url))
 	if err != nil {
-		fmt.Println("Failed to create HTTP request!")
-		return fmt.Errorf("failed to create HTTP request: %v", err)
+		fmt.Println("Failed to send HTTP GET request:", err)
+		return fmt.Errorf("failed to send HTTP GET request: %v", err)
 	}
-	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("HyDFSfilename", HyDFSfilename)
-
-	// Send the HTTP request
-	clienthttp := &http.Client{}
-	resp, err := clienthttp.Do(req)
-	if err != nil {
-		fmt.Println("Failed to send HTTP request")
-		return fmt.Errorf("failed to send HTTP request: %v", err)
-	}
+	//req.Header.Set("Content-Type", "application/octet-stream")
+	//req.Header.Set("HyDFSfilename", HyDFSfilename)
 	defer resp.Body.Close()
 
-	// Check response from the server
+	// Check the server's response status
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Println("Error from server:", string(body))
 		return fmt.Errorf("server error: %s", string(body))
 	}
 
-	fmt.Println("File successfully uploaded to server.")
+	// Read the file content from the response body
+	fileContent, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read file content from response: %v", err)
+	}
+
+	// Write the content to the specified local file
+	err = os.WriteFile(localfilename, fileContent, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write content to local file: %v", err)
+	}
+
+	fmt.Println("File successfully retrieved and saved as", localfilename)
 
 	return nil
 }
@@ -336,6 +376,39 @@ func FileServerLaunch(fs *FileServer) {
 		fmt.Fprintln(w, "File successfully received and saved.")
 	})
 
+	// File download handler for HTTP GET requests
+	http.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Get filename from the query parameter
+		remoteFilename := r.URL.Query().Get("filename")
+		if remoteFilename == "" {
+			http.Error(w, "Filename query parameter is missing", http.StatusBadRequest)
+			return
+		}
+
+		// Check if the file exists on this server
+		file, exists := fs.files[remoteFilename]
+		if !exists {
+			http.Error(w, "File not found on this server", http.StatusNotFound)
+			return
+		}
+
+		// Read the content of the file
+		fileContent, err := os.ReadFile(file.filename)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read file: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Send the file content as the HTTP response
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write(fileContent)
+	})
 	l, err := net.Listen("tcp", ":3333")
 	if err != nil {
 		log.Fatal("Fileserver listen error:", err)
@@ -371,3 +444,56 @@ func (t *FService) SearchFile(args *LR_files, reply *int) error {
 	}
 	return nil
 }
+
+// func CheckAndReplicateFiles(nodeID int, membershipList []int, fileMap map[int][]string) {
+// 	// Iterate over all nodes in the system to see if this node (nodeID) should store files as a successor
+// 	for _, owner := range membershipList {
+// 		if owner == nodeID {
+// 			continue // Skip itself
+// 		}
+
+// 		// Get the list of successors for the owner node based on membership list order
+// 		successors := findSuccessors(owner, membershipList, 2)
+
+// 		// Check if this node is a successor for the owner node
+// 		for _, successor := range successors {
+// 			if successor == nodeID {
+// 				// NodeID is a successor for this owner; check if file replication is needed
+// 				replicateFilesFromOwner(owner, fileMap[owner])
+// 				break
+// 			}
+// 		}
+// 	}
+// }
+
+// findSuccessors returns the first 'n' alive successors of 'owner' in a circular membership list
+func findSuccessors(owner int, membershipList []int, n int) []int {
+	var successors []int
+	listLength := len(membershipList)
+
+	// Find the index of the owner in the membership list
+	var ownerIndex int
+	for i, node := range membershipList {
+		if node == owner {
+			ownerIndex = i
+			break
+		}
+	}
+
+	// Iterate starting from the owner to find 'n' successors, wrapping around if necessary
+	for i := 1; i <= n; i++ {
+		successorIndex := (ownerIndex + i) % listLength
+		successor := membershipList[successorIndex]
+		successors = append(successors, successor)
+	}
+	//fmt.Println("successors", successors, "ownerid", ownerIndex)
+	return successors
+}
+
+// Function to replicate files from an owner
+// func replicateFilesFromOwner(owner int, files []string) {
+// 	for _, file := range files {
+// 		fmt.Printf("Node needs to replicate file %s from owner %d\n", file, owner)
+// 		// Logic to initiate file transfer here (could be a pull request from the owner or nearest successor)
+// 	}
+// }

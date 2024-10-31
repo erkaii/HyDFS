@@ -70,7 +70,7 @@ func main() {
 				continue
 			}
 
-			err := CreateFileClient(words[1], words[2], mydomain)
+			err := CreateFileClient(words[1], words[2], mydomain, fs)
 			if err != nil {
 				log.Printf("Failed to create file: %s\n", err.Error())
 			}
