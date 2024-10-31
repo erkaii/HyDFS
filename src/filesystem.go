@@ -88,26 +88,38 @@ func findRange(lints []int, k int) int {
 	return -1 // If `k` is out of range, though unlikely
 }
 
+// Hash the filename to determine which server will handle the file.
+// Ping servers to find one that is alive and reachable.
+// Make an RPC call to check if the file already exists on the server.
+// If the file does not exist, upload the file using an HTTP POST request.
+// Receive confirmation from the server that the file was successfully uploaded.
+
 // Client side funcs
 func CreateFileClient(localfilename string, HyDFSfilename string, myDomain string) error {
 
 	//server_id := HashKey(HyDFSfilename)
+	// list of servers for consistent hashing
 	list := make([]int, MAX_SERVER)
 	for i := 0; i < MAX_SERVER; i++ {
 		list[i] = i + 1
 	}
+	//findrange finds the server id on which the file will be created and stored; mapping file on to a node on ring
+	// this server id acts as introducer, which checks if I'm the one to handle this request or some else should do it.this is done in search Files.
 	server_id := findRange(list, HashKey(HyDFSfilename))
 
 	// Iterate through the possible server ids to find the server to send request to
+	// server_id may not be alive, so you first ping ideal server_id, if alive ok. else, you know the files exist in the server_id's successor in the ring, so you ping that server_id in next iteration
 	for i := 0; i < MAX_SERVER; i++ {
 		// Make use of Ping feature from failure detector
+		//ping ideal server id
 		s := failuredetector.NewSender(id_to_domain(server_id), failuredetector.PingPort, myDomain)
 		fmt.Println(id_to_domain(server_id))
 		err := s.Ping(failuredetector.Timeout)
+		//if ideal server is alive then proceed to file tcp connection and search if file exist
 		if err == nil { // Ping succeeded
 			break
 		}
-
+		//else find the successor of ideal server to seaerh for file in the next iteration.
 		server_id = server_id%MAX_SERVER + 1 // I know this looks suspicious
 		if i == MAX_SERVER-1 {
 			return errors.New("No server alive!")
@@ -125,11 +137,11 @@ func CreateFileClient(localfilename string, HyDFSfilename string, myDomain strin
 	if err != nil {
 		return err
 	}
-
+	// to indicate server_id handles the file and it already has the file
 	if vm_id == -1 {
 		return errors.New("File already exists!")
 	}
-
+	//  if server_id isnt the one to handle file, it gives different result so dial the correct server to prcoess file
 	if vm_id != server_id {
 		client, err = rpc.DialHTTP("tcp", id_to_domain(vm_id)+":3333")
 		if err != nil {
@@ -146,7 +158,7 @@ func CreateFileClient(localfilename string, HyDFSfilename string, myDomain strin
 			return errors.New("File already exists!")
 		}
 	}
-
+	//if server_id is the real server to prcoess the file and it does not have file yet, then we should upload file through http
 	// Now start writing to the file.
 	fmt.Println("Yes, you can write to vm", vm_id)
 
@@ -342,13 +354,18 @@ type FService struct {
 	fs *FileServer
 }
 
+// server_id validates if it is the one to handle the file or someone else in the full membership list
 func (t *FService) SearchFile(args *LR_files, reply *int) error {
+	//hashing of the alive members in the list
 	*reply = findRange(t.fs.aliveml.Alive_Ids(), HashKey(args.Remote))
+	//if server_id is the one to process the file -validation
 	if *reply == t.fs.id {
 		_, exists := t.fs.files[args.Remote]
+		//if file exists, do not allow another file write
 		if exists {
 			*reply = -1
 		} else {
+			//proceed to accept upload of the file.
 			t.fs.files[args.Remote] = File{filename: args.Remote}
 		}
 	}
