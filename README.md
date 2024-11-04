@@ -37,7 +37,7 @@ where n is the machine id from 1 to 10.
 8. On server, testing purpose: ```list_mem_ids``` lists the membership and the IDs on the ring corresponding to the nodes.
 
 # Detailed Designs
-## Server Topology Structure
+## 1. Server Topology Structure
 The servers are arranged in a ring structure, ordered by their server ids. In our case, we use 10 VMs as servers, hence the server ids are integers from 1 to 10. For any given file stored in the filesystem, the filename will be hashed as a string, the hash result will then mapped to an integer named as file number in between 1 - 1000. In our case, we assign file with file number ```n``` to its primary file server ```id``` such that ```(id * 100 - n) mod 1000``` is the minimum. 
 
 Each file will have ```k``` replications stored in ```k``` successors of its primary file server.
@@ -50,7 +50,7 @@ Below are three possible examples of the file system status in our setting of 10
   <img src="images/topo3.jpg" alt="Image 3" style="height: 200px; width: auto;">
 </div>
 
-## Server Failures
+## 2. Server Failures
 A failure detector is used to check the live status of all file servers. While the file server is running, it periodically calls a helper function of the failure detector, to get the list of all alive member ```id``` is the server.
 
 The file system maintains a ```pred_list``` list of ```k``` predecessors according to the current membership list.
@@ -75,10 +75,10 @@ Meanwhile, the filenames stored on each server are recorded in two separate list
 
 In case of server failure, both replications and primary files need to be restored in other servers.
 
-### Failure Handling 1: Replication Restore
+### 2.1 Failure Handling: Replication Restore
 When server ```id = D``` is down, some of its **successors** need to restore the replication files originally replicated by ```D``` in its ```r_files```. 
 
-To acheive this, each file server consistantly monitor any changes happen in its k-predecessor list ```pred_list```. 
+To acheive this, each file server consistently monitor any changes happen in its k-predecessor list ```pred_list```. 
 
 An example of such failure: 
 <div style="display: flex; justify-content: center; gap: 10px; margin: 0 auto;">
@@ -106,7 +106,7 @@ An example of such failure:
 
 At each cycle the membership list is queried by the file server, it checks if any new members show up in its ```pred_list``` compared to the last cycle. Use ```r_files``` to store replications from new predecessors' ```p_files```.
 
-### Failure Handling 2: Primary Restore
+### 2.2 Failure Handling: Primary Restore
 When server ```id = D``` is down, its **direct successor** need to restore the primary files originally stored by ```D``` in its ```p_files```. 
 
 The complication here is that there might be consecutive server failures during the same cycle, hence some alive successor server may need to restore primary files of more than one server. 
@@ -149,3 +149,26 @@ An example of such failure:
 
 
 To make things simpler, ```server 5``` **DOES NOT** intentionally monitor the live status of its direct predecessor ```server 4```. Instead, **whenever** there's an update in its ```pred_list```, ```server 5``` will iterate through all filenames in its own ```r_files```, and calculate ```(id * 100 - n) mod 1000``` to check if ```id = 5``` is the minimum now, if YES, move that file from ```r_files``` to ```p_files```, **AND push the replications of this file** to ```server 5```'s ```k``` successors! (Pushing replications is necessary because from the perspective of ```server 7```, its ```pred_list``` doesn't change, so the replications of files ```#400``` and ```#301``` should be pushed by ```server 5``` rather than pulled by ```server 7```).
+
+## 3. Request Handling
+A general workflow of request handling in the HyDFS filesystem:
+
+1. A ```client``` wants to make a request to the filesystem, it will first search for one alive file server as its ```coordinator```, and sends the request to it.
+2. The ```coordinator``` should first check if the request is legal (reject the client if illegal), then act as a **man in the middle** to perform the request, meaning all dataflow for this request **involving the client** should run through the ```coordinator```.
+
+The reason behind using such a **man in the middle** ```coordinator``` rather than the more efficient way of letting the client direct transfer files with the actual responsible file servers is that the ```coordinator``` always has the ability to handle potential failures during transactions, while the client may get lost if it got introduced to another file server which breaks down during the same cycle. 
+
+An illustration of the **man in the middle** ```coordinator``` design.
+
+<div style="display: flex; justify-content: center; gap: 10px; margin: 0 auto;">
+  <img src="images/request1-1.jpg" alt="Image 1" style="height: 200px; width: auto;">
+  <img src="images/request1-2.jpg" alt="Image 3" style="height: 200px; width: auto;">
+</div>
+
+An illustration of the potential issues in introduction style.
+
+<div style="display: flex; justify-content: center; gap: 10px; margin: 0 auto;">
+  <img src="images/request2-1.jpg" alt="Image 1" style="height: 200px; width: auto;">
+  <img src="images/request2-2.jpg" alt="Image 3" style="height: 200px; width: auto;">
+</div>
+
