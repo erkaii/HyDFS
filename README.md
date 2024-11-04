@@ -99,7 +99,10 @@ An example of such failure:
             r_files = [#400, #301]
     
     Explanation: 
-        The failure of server 5 is reflected in server 7's pred_list as server 4 newly became one of server 7's predecessors. Server 7 doesn't care WHO FAILED, it simply spots the NEW predecessor and ask for its primary files.
+        The failure of server 5 is reflected in server 7's pred_list as 
+        server 4 newly became one of server 7's predecessors. Server 7 doesn't 
+        care WHO FAILED, it simply spots the NEW predecessor and ask for its 
+        primary files.
 
 At each cycle the membership list is queried by the file server, it checks if any new members show up in its ```pred_list``` compared to the last cycle. Use ```r_files``` to store replications from new predecessors' ```p_files```.
 
@@ -139,7 +142,9 @@ An example of such failure:
             r_files = [#400, #301] 
 
     Explanation: 
-        Server 4 failed, server 5 restores server 4's primary files by moving them from its own r_files to p_files. Meanwhile, server 5 push the replications of these newly restored files to its k successors, including server 7.
+        Server 4 failed, server 5 restores server 4's primary files by moving 
+        them from its own r_files to p_files. Meanwhile, server 5 push the replications 
+        of these newly restored files to its k successors, including server 7.
 
 
 
