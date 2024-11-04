@@ -168,7 +168,7 @@ An illustration of the **man in the middle** ```coordinator``` design.
 An illustration of the potential issues in introduction style.
 
 <div style="display: flex; justify-content: center; gap: 10px; margin: 0 auto;">
-  <img src="images/request2-1.jpg" alt="Image 1" style="height: 200px; width: auto;">
-  <img src="images/request2-2.jpg" alt="Image 3" style="height: 200px; width: auto;">
+  <img src="images/request2-1.jpg" alt="Image 1" style="height: 150px; width: auto;">
+  <img src="images/request2-2.jpg" alt="Image 3" style="height: 150px; width: auto;">
 </div>
 
