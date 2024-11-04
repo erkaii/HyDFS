@@ -161,14 +161,20 @@ The reason behind using such a **man in the middle** ```coordinator``` rather th
 An illustration of the **man in the middle** ```coordinator``` design.
 
 <div style="display: flex; justify-content: center; gap: 10px; margin: 0 auto;">
-  <img src="images/request1-1.jpg" alt="Image 1" style="height: 200px; width: auto;">
-  <img src="images/request1-2.jpg" alt="Image 3" style="height: 200px; width: auto;">
+  <img src="images/request1-1.jpg" alt="Image 1" style="height: 150px; width: auto;">
+  <img src="images/request1-2.jpg" alt="Image 3" style="height: 150px; width: auto;">
 </div>
 
-An illustration of the potential issues in introduction style.
+An illustration of the potential issues in "introduction style".
 
 <div style="display: flex; justify-content: center; gap: 10px; margin: 0 auto;">
   <img src="images/request2-1.jpg" alt="Image 1" style="height: 150px; width: auto;">
   <img src="images/request2-2.jpg" alt="Image 3" style="height: 150px; width: auto;">
 </div>
 
+### 3.1 Go Routines in HyDFS
+Below is a draft of the Go Routines running on the file server.
+![threads](images/threads.jpg)
+
+### 3.2 Client Code
+The logic of HyDFS client is straight-forward. Only a single process is needed for the client program to ask for commands from user input. Handle the command with a switch statement, make HTTP requests to the randomly selected ```coordinator``` server accordingly.
