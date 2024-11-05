@@ -91,7 +91,7 @@ func findRange(lints []int, k int) int {
 }
 
 // Helper function to handle the file upload via HTTP POST
-func uploadFile(url, localfilename, HyDFSfilename string) error {
+func uploadFile(url, localfilename, HyDFSfilename string, isReplication bool) error {
 	fileContent, err := os.ReadFile(localfilename)
 	if err != nil {
 		//fmt.Println("Failed to open local file!", localfilename, err)
@@ -107,6 +107,10 @@ func uploadFile(url, localfilename, HyDFSfilename string) error {
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("HyDFSfilename", HyDFSfilename)
+	// Set replication flag for uploads triggered by replication
+	if isReplication {
+		req.Header.Set("X-Replication-Upload", "true")
+	}
 
 	// Send the HTTP request
 	clienthttp := &http.Client{}
@@ -124,6 +128,54 @@ func uploadFile(url, localfilename, HyDFSfilename string) error {
 		//fmt.Println("Error from server:", string(body))
 		return fmt.Errorf("server error: %s", string(body))
 	}
+	return nil
+}
+
+func (fs *FileServer) ReplicateFileToSuccessors(filename string, myDomain string) error {
+	// Retrieve alive successors
+	activeMembers := fs.aliveml.GetActiveMembers() // Get only active nodes
+
+	// Get the required successors for the current node
+	ownerID := fs.id
+	targetReplicas := NUM_REPLICAS
+	successors := findSuccessors(ownerID, activeMembers, len(activeMembers)) // Get all possible successors
+
+	for _, successorID := range successors {
+		if targetReplicas == 0 {
+			break // Stop once the target number of replicas is reached
+		}
+
+		successorDomain := id_to_domain(successorID)
+		s := failuredetector.NewSender(successorDomain, failuredetector.PingPort, myDomain)
+		fmt.Println("Attempting replication to successor:", successorDomain)
+
+		// Ping to check if the successor is alive
+		err := s.Ping(failuredetector.Timeout)
+		if err != nil {
+			log.Printf("Successor %s is not reachable. Skipping to next successor.\n", successorDomain)
+
+			continue // Skip to the next successor if ping fails
+		}
+
+		// Upload the file to the alive successor
+		replicateURL := fmt.Sprintf("http://%s:8080/upload", successorDomain)
+		//since primary vm is uploading file to replica machines, it need not call replicate again as it will lead to infinite call
+		err = uploadFile(replicateURL, filename, filename, false)
+		if err != nil {
+			log.Printf("Warning: Failed to replicate file %s to successor %s: %v\n", filename, successorDomain, err)
+			continue // Move to the next successor if replication fails
+		}
+
+		log.Printf("Successfully replicated file %s to successor %s.\n", filename, successorDomain)
+		fmt.Println("Successfully replicated file %s to successor %s.\n", filename, successorDomain)
+		targetReplicas-- // Decrement the target count as replication was successful
+	}
+
+	// Check if the target number of replicas was met
+	if targetReplicas > 0 {
+		log.Printf("Warning: Only %d out of %d replicas were created for file %s.\n", NUM_REPLICAS-targetReplicas, NUM_REPLICAS, filename)
+	}
+
 	return nil
 }
 
@@ -201,30 +253,13 @@ func CreateFileClient(localfilename string, HyDFSfilename string, myDomain strin
 	// Now start writing to the file.
 	fmt.Println("Yes, you can write to vm", vm_id)
 
-	//upload the file to primary node
+	//upload the file to primary node and replicate it from primary node
 	url := fmt.Sprintf("http://%s:8080/upload", id_to_domain(vm_id))
-	err = uploadFile(url, localfilename, HyDFSfilename)
+	err = uploadFile(url, localfilename, HyDFSfilename, true)
 
 	if err != nil {
 		log.Printf("Warning: Failed to upload the file on:", id_to_domain(vm_id))
 		fmt.Printf("Warning: Failed to upload the file on:", id_to_domain(vm_id))
-	}
-	//Initiate replication after confirming owner upload success
-	//	fmt.Println("membership list", fs.aliveml.Members)
-	activeMembers := fs.aliveml.GetActiveMembers()
-	fmt.Println("activeMembers", activeMembers)
-	successors := findSuccessors(vm_id, activeMembers, NUM_REPLICAS)
-	for _, successorID := range successors {
-		successorDomain := id_to_domain(successorID)
-		//fmt.Println("replica machine", successorDomain)
-		replicateURL := fmt.Sprintf("http://%s:8080/upload", successorDomain)
-
-		err = uploadFile(replicateURL, localfilename, HyDFSfilename)
-		if err != nil {
-			log.Printf("Warning: Failed to replicate file to successor %s: %v", successorDomain, err)
-			continue // Skip this successor if replication fails
-		}
-		fmt.Println("file uploaded on replica", successorDomain)
 	}
 
 	return nil
@@ -354,6 +389,9 @@ func FileServerLaunch(fs *FileServer) {
 
 		// Retrieve the target filename from the headers
 		remoteFilename := r.Header.Get("HyDFSfilename")
+		// Check if this is an initial upload or replication upload
+		isReplication := r.Header.Get("X-Replication-Upload") == "true"
+		fmt.Println("isreplication", isReplication)
 		if remoteFilename == "" {
 			http.Error(w, "HyDFSfilename header missing", http.StatusBadRequest)
 			return
@@ -374,6 +412,17 @@ func FileServerLaunch(fs *FileServer) {
 		}
 
 		fmt.Fprintln(w, "File successfully received and saved.")
+		//Initiate replication after confirming owner upload success
+		// Only initiate replication if this is an initial upload
+		if isReplication {
+			mydomain := "fa24-cs425-68" + fmt.Sprintf("%02d", fs.id) + ".cs.illinois.edu"
+			rep_err := fs.ReplicateFileToSuccessors(remoteFilename, mydomain)
+			if rep_err != nil {
+				log.Printf("Warning: Failed to replicate the replica:", rep_err)
+				fmt.Println("Warning: Failed to replicate the replica:", rep_err)
+			}
+		}
+
 	})
 
 	// File download handler for HTTP GET requests

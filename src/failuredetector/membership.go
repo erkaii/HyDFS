@@ -292,3 +292,21 @@ func (ml *MembershipList) Alive_Ids() []int {
 	sort.Ints(ids)
 	return ids
 }
+
+func (ml *MembershipList) GetActiveMembers() []int {
+	ml.mu.Lock()
+	defer ml.mu.Unlock()
+
+	var activeMembers []int
+	//fmt.Println("ml.Members", ml.Members)
+	for domain, member := range ml.Members {
+
+		if member.State == "Alive" {
+			id := domainToID(domain) // Convert domain to node ID, e.g., "fa24-cs425-6803.cs.illinois.edu" -> 3
+			activeMembers = append(activeMembers, id)
+		}
+	}
+	//	fmt.Println("activeMembers in getactive memebers", activeMembers)
+	sort.Ints(activeMembers) // Ensure list is sorted for consistent successor calculation
+	return activeMembers
+}
