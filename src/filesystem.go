@@ -86,6 +86,28 @@ func findServerByfileID(ids []int, fileID int) int {
 	return server_id
 }
 
+func fileExistsinPrimary(fs *FileServer, filename string) bool {
+	fs.Mutex.Lock()
+	defer fs.Mutex.Unlock()
+	_, exists := fs.p_files[filename]
+	if exists {
+		return true
+	} else {
+		return false
+	}
+}
+
+func fileExistsinReplica(fs *FileServer, filename string) bool {
+	fs.Mutex.Lock()
+	defer fs.Mutex.Unlock()
+	_, exists := fs.r_files[filename]
+	if exists {
+		return true
+	} else {
+		return false
+	}
+}
+
 func id_to_domain(id int) string {
 	return "fa24-cs425-68" + fmt.Sprintf("%02d", id) + ".cs.illinois.edu"
 }
@@ -114,9 +136,10 @@ func HTTPServer(fs *FileServer) {
 
 	http.HandleFunc("/", fs.httpHandleSlash)                // Handle slash request (used when client search coordinator servers)
 	http.HandleFunc("/create", fs.httpHandleCreate)         // Handle file creation requests
+	http.HandleFunc("/existfile", fs.httpHandleExistence)   // Handle file existence queries
 	http.HandleFunc("/membership", fs.httpHandleMembership) // Return ids of online servers
 	http.HandleFunc("/online", fs.httpHandleOnline)         // Return YES/NO to indicate online/offline
-	http.HandleFunc("/append", fs.httpHandleAppend)
+	http.HandleFunc("/appending", fs.httpHandleAppending)
 
 	fmt.Println("Starting HTTP server on :" + HTTP_PORT)
 	log.Fatal(http.ListenAndServe(":"+HTTP_PORT, nil))
@@ -151,7 +174,24 @@ func (fs *FileServer) httpHandleCreate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check if allowed to create
-		if true {
+		url := fmt.Sprintf("http://%s:%s/existfile?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, hydfs)
+		req2, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			http.Error(w, "Failed when checking file existence", http.StatusInternalServerError)
+			return
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req2)
+		existFlag := true
+		if resp.StatusCode == http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			if string(body) == "NO" {
+				existFlag = false
+			}
+		}
+
+		if !existFlag {
 			// Write the request into a cache
 			fs.Mutex.Lock()
 			defer fs.Mutex.Unlock()
@@ -186,7 +226,7 @@ func (fs *FileServer) httpHandleCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Create a new request to the external server
-		url := fmt.Sprintf("http://%s:%s/append?filename=%s", id_to_domain(responsible_server_id), HTTP_PORT, filename)
+		url := fmt.Sprintf("http://%s:%s/appending?filename=%s", id_to_domain(responsible_server_id), HTTP_PORT, filename)
 		req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(fileContent))
 		if err != nil {
 			http.Error(w, "Failed to create request to external server", http.StatusInternalServerError)
@@ -208,6 +248,10 @@ func (fs *FileServer) httpHandleCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Remove the task from queue
+		fs.Mutex.Lock()
+		delete(fs.coord_append_queue, filename)
+		fs.Mutex.Unlock()
 		fmt.Fprint(w, "File uploaded to external server "+id_to_domain(responsible_server_id)+" successfully")
 		return
 	default:
@@ -220,8 +264,6 @@ func (fs *FileServer) httpHandleSlash(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		w.Write([]byte{})
 		return
-	case http.MethodPost:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -241,8 +283,32 @@ func (fs *FileServer) httpHandleMembership(w http.ResponseWriter, r *http.Reques
 		}
 		w.Write([]byte(message))
 		return
-	case http.MethodPost:
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (fs *FileServer) httpHandleExistence(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		filename := r.URL.Query().Get("filename")
+		ftype := r.URL.Query().Get("ftype")
+
+		if ftype == "p" {
+			if fileExistsinPrimary(fs, filename) {
+				w.Write([]byte("YES"))
+			} else {
+				w.Write([]byte("NO"))
+			}
+		} else {
+			if fileExistsinReplica(fs, filename) {
+				w.Write([]byte("YES"))
+			} else {
+				w.Write([]byte("NO"))
+			}
+		}
+
+		return
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -259,14 +325,12 @@ func (fs *FileServer) httpHandleOnline(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("No"))
 		}
 		return
-	case http.MethodPost:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func (fs *FileServer) httpHandleAppend(w http.ResponseWriter, r *http.Request) {
+func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPut:
 		// Get filename from query parameters
@@ -292,6 +356,10 @@ func (fs *FileServer) httpHandleAppend(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Respond to confirm the operation was successful
+		fs.Mutex.Lock()
+		fs.p_files[filename] = File{filename: filename}
+		fs.Mutex.Unlock()
+
 		fmt.Fprint(w, "File content appended successfully")
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
