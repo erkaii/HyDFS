@@ -42,7 +42,7 @@ func main() {
 	//------------------------- Main Logic ------------------------//
 	ml := failuredetector.NewMembershipList()
 	// 1. Failure Detection Service
-	// go failuredetector.Failuredetect(ml, vmNumber)
+	go failuredetector.Failuredetect(ml, vmNumber)
 
 	fs := FileServerInit(ml, vmNumber)
 	// 2. Maintenance Daemon
