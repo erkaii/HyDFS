@@ -9,6 +9,8 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,15 +32,19 @@ type FileServer struct {
 	p_files   map[string]File
 	r_files   map[string]File
 	id        int
+	online    bool
 	Mutex     sync.RWMutex
 }
 
 func FileServerInit(ml *failuredetector.MembershipList, id int) *FileServer {
 	return &FileServer{
-		id:      id,
-		p_files: make(map[string]File),
-		r_files: make(map[string]File),
-		aliveml: ml,
+		id:        id,
+		p_files:   make(map[string]File),
+		r_files:   make(map[string]File),
+		aliveml:   ml,
+		pred_list: [REP_NUM]int{0},
+		succ_list: [REP_NUM]int{0},
+		online:    false,
 	}
 }
 
@@ -69,6 +75,17 @@ func id_to_domain(id int) string {
 // Maintenance Thread
 func Maintenance(fs *FileServer) {
 	for {
+		fs.Mutex.Lock()
+		if len(fs.aliveml.Alive_Ids()) == MAX_SERVER {
+			fs.online = true
+		}
+		if !fs.online {
+			fs.Mutex.Unlock()
+			time.Sleep(time.Second)
+			continue
+		}
+		fs.Mutex.Unlock()
+
 		time.Sleep(time.Second)
 	}
 }
@@ -79,6 +96,8 @@ func HTTPServer(fs *FileServer) {
 
 	http.HandleFunc("/", fs.httpHandleSlash)
 	http.HandleFunc("/create", fs.httpHandleCreate)
+	http.HandleFunc("/membership", fs.httpHandleMembership)
+	http.HandleFunc("/online", fs.httpHandleOnline)
 
 	fmt.Println("Starting HTTP server on :" + HTTP_PORT)
 	log.Fatal(http.ListenAndServe(":"+HTTP_PORT, nil))
@@ -121,6 +140,45 @@ func (fs *FileServer) httpHandleSlash(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		w.Write([]byte{})
+		return
+	case http.MethodPost:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (fs *FileServer) httpHandleMembership(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		ids := fs.aliveml.Alive_Ids()
+		message := "No member in the file system??"
+		if len(ids) != 0 {
+			strs := make([]string, len(ids))
+			for i, num := range ids {
+				strs[i] = strconv.Itoa(num) // Convert each int to string
+			}
+			message = strings.Join(strs, ", ")
+		}
+		w.Write([]byte(message))
+		return
+	case http.MethodPost:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (fs *FileServer) httpHandleOnline(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		fs.Mutex.Lock()
+		defer fs.Mutex.Unlock()
+		if fs.online {
+			w.Write([]byte("Yes"))
+		} else {
+			w.Write([]byte("No"))
+		}
 		return
 	case http.MethodPost:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

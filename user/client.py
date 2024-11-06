@@ -33,6 +33,44 @@ def handle_user_input(user_input):
     if len(parts) == 0:
         return True
 
+    if parts[0] == 'exit':
+        return False
+
+    if parts[0] == "list_mem_ids" and len(parts) == 2:
+        try:
+            server_id = int(parts[1])
+            if server_id > 10 or server_id < 1:
+                print("Invalid server id!")
+                return True
+            address = server_addresses[server_id - 1] + ":" + HTTP_PORT
+            response = requests.get(address, timeout=2)
+            if response.status_code == 200:
+                print(f"Connected to live server at {address}")
+                response = requests.get(f"{address}/membership")
+                print(f"membership received from {server_id}: {response.text}")
+
+        except requests.RequestException as e:
+            print(f"Could not connect to {address}: {e}")
+        return True
+    
+    if parts[0] == 'online' and len(parts) == 2:
+        try:
+            server_id = int(parts[1])
+            if server_id > 10 or server_id < 1:
+                print("Invalid server id!")
+                return True
+            address = server_addresses[server_id - 1] + ":" + HTTP_PORT
+            response = requests.get(address, timeout=2)
+            if response.status_code == 200:
+                print(f"Connected to live server at {address}")
+                response = requests.get(f"{address}/online")
+                print(f"Is server {server_id} online? {response.text}")
+
+        except requests.RequestException as e:
+            print(f"Could not connect to {address}: {e}")
+        return True
+
+
     if parts[0] == "create" and len(parts) == 3:
         local, hydfs = parts[1], parts[2]
         
@@ -46,10 +84,10 @@ def handle_user_input(user_input):
                 print("Request to server failed:", e)
         else:
             print("No live servers available")
-    # ...
+        return True
 
-    else:
-        print("Invalid option, please try again.")
+    print("Not a valid command")
+    # ...
     return True
 
 def main():
