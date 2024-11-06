@@ -3,8 +3,6 @@ package failuredetector
 import (
 	"fmt"
 	"log"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -24,13 +22,7 @@ const (
 	FD_period      = time.Second
 )
 
-func Failuredetect(ml *MembershipList) {
-	// Get the second argument which is the VM number
-	vmNumber, err := strconv.Atoi(os.Args[1])
-	if err != nil || vmNumber < 1 || vmNumber > N {
-		log.Fatal("The VM number must be an integer between 1 and 10.")
-	}
-
+func Failuredetect(ml *MembershipList, vmNumber int) {
 	// Construct the domain name based on the VM number
 	domain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
 
