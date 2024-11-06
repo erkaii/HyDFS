@@ -1,6 +1,7 @@
 import requests
 
 HTTP_PORT = "4444"
+FILE_PATH_PREFIX = "../files/client/"
 
 # List of server addresses to check
 server_addresses = ["http://fa24-cs425-6801.cs.illinois.edu", 
@@ -77,14 +78,30 @@ def handle_user_input(user_input):
         live_server = find_live_server()
         if live_server:
             try:
+                # Step 1: Request authorization to create the file
                 data = {"local": local, "hydfs": hydfs}
                 response = requests.post(f"{live_server}/create", json=data)
-                print("Response from server:", response.text)
+                
+                if response.ok:
+                    print("Authorization from server:", response.text)
+                    
+                    # Step 2: Send the actual file content
+                    with open(FILE_PATH_PREFIX + local, 'rb') as f:
+                        upload_response = requests.put(f"{live_server}/create?filename={hydfs}", data=f)
+                    
+                    if upload_response.ok:
+                        print("File upload complete:", upload_response.text)
+                    else:
+                        print("File upload failed:", upload_response.text)
+                else:
+                    print("Authorization failed:", response.text)
+
             except requests.RequestException as e:
                 print("Request to server failed:", e)
         else:
             print("No live servers available")
         return True
+
 
     print("Not a valid command")
     # ...
