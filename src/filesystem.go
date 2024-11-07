@@ -74,6 +74,29 @@ func hashKey(input string) int {
 	return int(result)
 }
 
+func findSuccessors(owner int, membershipList []int, n int) []int {
+	var successors []int
+	listLength := len(membershipList)
+
+	// Find the index of the owner in the membership list
+	var ownerIndex int
+	for i, node := range membershipList {
+		if node == owner {
+			ownerIndex = i
+			break
+		}
+	}
+
+	// Iterate starting from the owner to find 'n' successors, wrapping around if necessary
+	for i := 1; i <= n; i++ {
+		successorIndex := (ownerIndex + i) % listLength
+		successor := membershipList[successorIndex]
+		successors = append(successors, successor)
+	}
+	//fmt.Println("successors", successors, "ownerid", ownerIndex)
+	return successors
+}
+
 func findServerByfileID(ids []int, fileID int) int {
 	server_id := -1
 	min := 1000
@@ -183,6 +206,8 @@ func (fs *FileServer) httpHandleCreate(w http.ResponseWriter, r *http.Request) {
 
 		client := &http.Client{}
 		resp, err := client.Do(req2)
+		defer resp.Body.Close()
+
 		existFlag := true
 		if resp.StatusCode == http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
@@ -226,7 +251,7 @@ func (fs *FileServer) httpHandleCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Create a new request to the external server
-		url := fmt.Sprintf("http://%s:%s/appending?filename=%s", id_to_domain(responsible_server_id), HTTP_PORT, filename)
+		url := fmt.Sprintf("http://%s:%s/appending?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, filename)
 		req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(fileContent))
 		if err != nil {
 			http.Error(w, "Failed to create request to external server", http.StatusInternalServerError)
@@ -335,6 +360,7 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 	case http.MethodPut:
 		// Get filename from query parameters
 		filename := r.URL.Query().Get("filename")
+		ftype := r.URL.Query().Get("ftype")
 		if filename == "" {
 			http.Error(w, "Filename not specified", http.StatusBadRequest)
 			return
@@ -357,7 +383,33 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 
 		// Respond to confirm the operation was successful
 		fs.Mutex.Lock()
-		fs.p_files[filename] = File{filename: filename}
+		if ftype == "p" {
+			fs.p_files[filename] = File{filename: filename}
+			fileContent, _ := os.ReadFile(FILE_PATH_PREFIX + filename)
+
+			succ_list_temp := findSuccessors(fs.id, fs.aliveml.Alive_Ids(), REP_NUM)
+			for _, i := range succ_list_temp {
+				// Create a new request to the external server
+				url := fmt.Sprintf("http://%s:%s/appending?filename=%s&ftype=r", id_to_domain(i), HTTP_PORT, filename)
+				req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(fileContent))
+				if err != nil {
+					http.Error(w, "Failed to create request to external server", http.StatusInternalServerError)
+					return
+				}
+
+				// Send the request
+				client := &http.Client{}
+				resp, err := client.Do(req)
+				if err != nil {
+					http.Error(w, "Failed to send request to external server", http.StatusInternalServerError)
+					return
+				}
+				defer resp.Body.Close()
+			}
+
+		} else {
+			fs.r_files[filename] = File{filename: filename}
+		}
 		fs.Mutex.Unlock()
 
 		fmt.Fprint(w, "File content appended successfully")
