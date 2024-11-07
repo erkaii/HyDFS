@@ -38,6 +38,7 @@ type FileServer struct {
 	id                 int
 	online             bool
 	Mutex              sync.RWMutex
+	coord_create_queue map[string]int
 	coord_append_queue map[string]int
 }
 
@@ -50,6 +51,7 @@ func FileServerInit(ml *failuredetector.MembershipList, id int) *FileServer {
 		pred_list:          [REP_NUM]int{0},
 		succ_list:          [REP_NUM]int{0},
 		online:             false,
+		coord_create_queue: make(map[string]int),
 		coord_append_queue: make(map[string]int),
 	}
 }
@@ -157,12 +159,16 @@ func Maintenance(fs *FileServer) {
 // Function to start HTTP server
 func HTTPServer(fs *FileServer) {
 
-	http.HandleFunc("/", fs.httpHandleSlash)                // Handle slash request (used when client search coordinator servers)
-	http.HandleFunc("/create", fs.httpHandleCreate)         // Handle file creation requests
-	http.HandleFunc("/existfile", fs.httpHandleExistence)   // Handle file existence queries
+	http.HandleFunc("/", fs.httpHandleSlash)        // Handle slash request (used when client search coordinator servers)
+	http.HandleFunc("/create", fs.httpHandleCreate) // Handle file creation requests
+	http.HandleFunc("/creating", fs.httpHandleCreating)
+	http.HandleFunc("/existfile", fs.httpHandleExistence)   // Handle file existence queries, return YES/NO
 	http.HandleFunc("/membership", fs.httpHandleMembership) // Return ids of online servers
 	http.HandleFunc("/online", fs.httpHandleOnline)         // Return YES/NO to indicate online/offline
+	http.HandleFunc("/append", fs.httpHandleAppend)
 	http.HandleFunc("/appending", fs.httpHandleAppending)
+	http.HandleFunc("/get", fs.httpHandleGet)
+	http.HandleFunc("/getting", fs.httpHandleGetting)
 
 	fmt.Println("Starting HTTP server on :" + HTTP_PORT)
 	log.Fatal(http.ListenAndServe(":"+HTTP_PORT, nil))
@@ -221,7 +227,7 @@ func (fs *FileServer) httpHandleCreate(w http.ResponseWriter, r *http.Request) {
 			fs.Mutex.Lock()
 			defer fs.Mutex.Unlock()
 
-			fs.coord_append_queue[hydfs] = responsible_server_id
+			fs.coord_create_queue[hydfs] = responsible_server_id
 
 			fmt.Fprintf(w, "Authorized")
 		} else {
@@ -243,7 +249,7 @@ func (fs *FileServer) httpHandleCreate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		fs.Mutex.Lock()
-		responsible_server_id, exist := fs.coord_append_queue[filename]
+		responsible_server_id, exist := fs.coord_create_queue[filename]
 		fs.Mutex.Unlock()
 
 		if !exist {
@@ -251,7 +257,7 @@ func (fs *FileServer) httpHandleCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Create a new request to the external server
-		url := fmt.Sprintf("http://%s:%s/appending?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, filename)
+		url := fmt.Sprintf("http://%s:%s/creating?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, filename)
 		req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(fileContent))
 		if err != nil {
 			http.Error(w, "Failed to create request to external server", http.StatusInternalServerError)
@@ -275,7 +281,7 @@ func (fs *FileServer) httpHandleCreate(w http.ResponseWriter, r *http.Request) {
 
 		// Remove the task from queue
 		fs.Mutex.Lock()
-		delete(fs.coord_append_queue, filename)
+		delete(fs.coord_create_queue, filename)
 		fs.Mutex.Unlock()
 		fmt.Fprint(w, "File uploaded to external server "+id_to_domain(responsible_server_id)+" successfully")
 		return
@@ -385,6 +391,13 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 		fs.Mutex.Lock()
 		if ftype == "p" {
 			fs.p_files[filename] = File{filename: filename}
+		} else {
+			fs.r_files[filename] = File{filename: filename}
+		}
+		fs.Mutex.Unlock()
+
+		// Pushing changes to replicas
+		if ftype == "p" {
 			fileContent, _ := os.ReadFile(FILE_PATH_PREFIX + filename)
 
 			succ_list_temp := findSuccessors(fs.id, fs.aliveml.Alive_Ids(), REP_NUM)
@@ -406,13 +419,277 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 				}
 				defer resp.Body.Close()
 			}
+		}
 
+		fmt.Fprint(w, "File content appended successfully")
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (fs *FileServer) httpHandleCreating(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPut:
+		// Get filename from query parameters
+		filename := r.URL.Query().Get("filename")
+		ftype := r.URL.Query().Get("ftype")
+		if filename == "" {
+			http.Error(w, "Filename not specified", http.StatusBadRequest)
+			return
+		}
+
+		// Open the file in append mode, or create it if it doesn't exist
+		file, err := os.OpenFile(FILE_PATH_PREFIX+filename, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			http.Error(w, "Failed to open or create file", http.StatusInternalServerError)
+			return
+		}
+		defer file.Close()
+
+		// Write the received content to the file
+		_, err = io.Copy(file, r.Body)
+		if err != nil {
+			http.Error(w, "Failed to write content to file", http.StatusInternalServerError)
+			return
+		}
+
+		fs.Mutex.Lock()
+		if ftype == "p" {
+			fs.p_files[filename] = File{filename: filename}
 		} else {
 			fs.r_files[filename] = File{filename: filename}
 		}
 		fs.Mutex.Unlock()
 
-		fmt.Fprint(w, "File content appended successfully")
+		// Pushing create to replicas
+		if ftype == "p" {
+			fileContent, _ := os.ReadFile(FILE_PATH_PREFIX + filename)
+
+			succ_list_temp := findSuccessors(fs.id, fs.aliveml.Alive_Ids(), REP_NUM)
+			for _, i := range succ_list_temp {
+				// Create a new request to the external server
+				url := fmt.Sprintf("http://%s:%s/creating?filename=%s&ftype=r", id_to_domain(i), HTTP_PORT, filename)
+				req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(fileContent))
+				if err != nil {
+					http.Error(w, "Failed to create request to external server", http.StatusInternalServerError)
+					return
+				}
+
+				// Send the request
+				client := &http.Client{}
+				resp, err := client.Do(req)
+				if err != nil {
+					http.Error(w, "Failed to send request to external server", http.StatusInternalServerError)
+					return
+				}
+				defer resp.Body.Close()
+			}
+		}
+
+		fmt.Fprint(w, "File content created successfully")
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (fs *FileServer) httpHandleGet(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		var req map[string]string
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Access file1 and file2 directly from the map
+		_, localExists := req["local"]
+		hydfs, hydfsExists := req["hydfs"]
+		if !localExists || !hydfsExists {
+			http.Error(w, "Missing localfilename or HyDFSfilename in request", http.StatusBadRequest)
+			return
+		}
+
+		// Find out the primary server of the HyDFS file
+		fileID := hashKey(hydfs)
+		responsible_server_id := findServerByfileID(fs.aliveml.Alive_Ids(), fileID)
+		if responsible_server_id == -1 {
+			log.Println("Invalid findServerByfileID result in httpHandleCreate")
+			http.Error(w, "Rejected due to server internal error", http.StatusBadRequest)
+			return
+		}
+
+		url := fmt.Sprintf("http://%s:%s/getting?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, hydfs)
+		req2, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			http.Error(w, "Failed when checking file existence", http.StatusInternalServerError)
+			return
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req2)
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			http.Error(w, "Rejected, file "+hydfs+" doesn't exist", http.StatusBadRequest)
+			return
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Fprintf(w, "%s", string(body))
+
+		return
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (fs *FileServer) httpHandleGetting(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		filename := r.URL.Query().Get("filename")
+		ftype := r.URL.Query().Get("ftype")
+
+		exist_flag := false
+		fs.Mutex.Lock()
+		if ftype == "p" {
+			_, exist_flag = fs.p_files[filename]
+		} else {
+			_, exist_flag = fs.r_files[filename]
+		}
+		fs.Mutex.Unlock()
+
+		if !exist_flag {
+			http.Error(w, "Rejected, file "+filename+" doesn't exist", http.StatusBadRequest)
+		}
+
+		// Attempt to read the file content
+		fileContent, err := os.ReadFile(FILE_PATH_PREFIX + filename)
+		if err != nil {
+			http.Error(w, "Could not read file: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Send the file content as the HTTP response
+		w.WriteHeader(http.StatusOK)
+		w.Write(fileContent)
+
+		return
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (fs *FileServer) httpHandleAppend(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		var req map[string]string
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Access file1 and file2 directly from the map
+		_, localExists := req["local"]
+		hydfs, hydfsExists := req["hydfs"]
+		if !localExists || !hydfsExists {
+			http.Error(w, "Missing localfilename or HyDFSfilename in request", http.StatusBadRequest)
+			return
+		}
+
+		// Find out the primary server of the HyDFS file
+		fileID := hashKey(hydfs)
+		responsible_server_id := findServerByfileID(fs.aliveml.Alive_Ids(), fileID)
+		if responsible_server_id == -1 {
+			log.Println("Invalid findServerByfileID result in httpHandleAppend")
+			http.Error(w, "Rejected due to server internal error", http.StatusBadRequest)
+			return
+		}
+
+		// Check if allowed to append
+		url := fmt.Sprintf("http://%s:%s/existfile?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, hydfs)
+		req2, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			http.Error(w, "Failed when checking file existence", http.StatusInternalServerError)
+			return
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req2)
+		defer resp.Body.Close()
+
+		existFlag := true
+		if resp.StatusCode == http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			if string(body) == "NO" {
+				existFlag = false
+			}
+		}
+
+		if existFlag {
+			// Write the request into a cache
+			fs.Mutex.Lock()
+			defer fs.Mutex.Unlock()
+
+			fs.coord_append_queue[hydfs] = responsible_server_id
+
+			fmt.Fprintf(w, "Authorized")
+		} else {
+			http.Error(w, "Rejected, file "+hydfs+" doesn't exist", http.StatusBadRequest)
+		}
+		return
+	case http.MethodPut:
+		filename := r.URL.Query().Get("filename")
+		if filename == "" {
+			http.Error(w, "HyDFS Filename not specified", http.StatusBadRequest)
+			return
+		}
+
+		// Read the file content from the request body
+		fileContent, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read file content from request", http.StatusInternalServerError)
+			return
+		}
+
+		fs.Mutex.Lock()
+		responsible_server_id, exist := fs.coord_append_queue[filename]
+		fs.Mutex.Unlock()
+
+		if !exist {
+			http.Error(w, "Invalid upload, file creation not allowed", http.StatusBadRequest)
+			return
+		}
+		// Create a new request to the external server
+		url := fmt.Sprintf("http://%s:%s/appending?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, filename)
+		req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(fileContent))
+		if err != nil {
+			http.Error(w, "Failed to create request to external server", http.StatusInternalServerError)
+			return
+		}
+
+		// Send the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			http.Error(w, "Failed to send request to external server", http.StatusInternalServerError)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Check if the external server responded successfully
+		if resp.StatusCode != http.StatusOK {
+			http.Error(w, "External server error: "+resp.Status, resp.StatusCode)
+			return
+		}
+
+		// Remove the task from queue
+		fs.Mutex.Lock()
+		delete(fs.coord_append_queue, filename)
+		fs.Mutex.Unlock()
+		fmt.Fprint(w, "File uploaded to external server "+id_to_domain(responsible_server_id)+" successfully")
+		return
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
