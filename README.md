@@ -38,7 +38,7 @@ where n is the machine id from 1 to 10.
 
 # Detailed Designs
 ## 1. Server Topology Structure
-The servers are arranged in a ring structure, ordered by their server ids. In our case, we use 10 VMs as servers, hence the server ids are integers from 1 to 10. For any given file stored in the filesystem, the filename will be hashed as a string, the hash result will then mapped to an integer named as file number in between 1 - 1000. In our case, we assign file with file number ```n``` to its primary file server ```id``` such that ```(id * 100 - n) mod 1000``` is the minimum. 
+The servers are arranged in a ring structure, ordered by their server ids. In our case, we use 10 VMs as servers, hence the server ids are integers from 1 to 10. For any given file stored in the filesystem, the filename will be hashed as a string, the hash result will then mapped to an integer named as file number in between 1 - 1000. In our case, we assign file with file number ```n``` to its primary file server ```id``` such that ```(id * 100 + 1000 - n) mod 1000``` is the minimum. 
 
 Each file will have ```k``` replications stored in ```k``` successors of its primary file server.
 
@@ -70,7 +70,7 @@ Examples:
         pred_list = [10, 8, 7]
 
 Meanwhile, the filenames stored on each server are recorded in two separate lists. 
-1. ```p_files``` stores the filenames that are assigned to this server according to ```(id * 100 - n) mod 1000``` calculation.
+1. ```p_files``` stores the filenames that are assigned to this server according to ```(id * 100 + 1000 - n) mod 1000``` calculation.
 2. ```r_files``` stores the filenames that are assigned to this server as replications of some other primary file server. 
 
 In case of server failure, both replications and primary files need to be restored in other servers.
@@ -148,14 +148,14 @@ An example of such failure:
 
 
 
-To make things simpler, ```server 5``` **DOES NOT** intentionally monitor the live status of its direct predecessor ```server 4```. Instead, **whenever** there's an update in its ```pred_list```, ```server 5``` will iterate through all filenames in its own ```r_files```, and calculate ```(id * 100 - n) mod 1000``` to check if ```id = 5``` is the minimum now, if YES, move that file from ```r_files``` to ```p_files```, **AND push the replications of this file** to ```server 5```'s ```k``` successors! (Pushing replications is necessary because from the perspective of ```server 7```, its ```pred_list``` doesn't change, so the replications of files ```#400``` and ```#301``` should be pushed by ```server 5``` rather than pulled by ```server 7```).
+To make things simpler, ```server 5``` **DOES NOT** intentionally monitor the live status of its direct predecessor ```server 4```. Instead, **whenever** there's an update in its ```pred_list```, ```server 5``` will iterate through all filenames in its own ```r_files```, and calculate ```(id * 100 + 1000 - n) mod 1000``` to check if ```id = 5``` is the minimum now, if YES, move that file from ```r_files``` to ```p_files```, **AND push the replications of this file** to ```server 5```'s ```k``` successors! (Pushing replications is necessary because from the perspective of ```server 7```, its ```pred_list``` doesn't change, so the replications of files ```#400``` and ```#301``` should be pushed by ```server 5``` rather than pulled by ```server 7```).
 
 ### 2.3 Bonus For Rejoin
 Surprisingly, by handling the failures in such way as shown above, almost no extra implementation is needed for file server rejoins.
 
 When a file server joins the network, according to **2.1 Failure Handling: Replication Restore**, it will firstly fetch all the replications for its new predecessors, secondly, according to **2.2 Failure Handling: Primary Restore**, it will iterate through all its ```r_files``` and check if any of them should be moved to ```p_files```. Thus **for the new comer**, NO extra implementation is needed for joining the network!
 
-However, for the file servers already in the network, some of them may need to remove the corresponding files from its ```p_files``` if they belong to the new comer. To do so, whenever a change happens to the membership list, every file server should iterate through its ```p_files```, use the ```(id * 100 - n) mod 1000``` calculation to decide if any of them no longer belongs to itself.
+However, for the file servers already in the network, some of them may need to remove the corresponding files from its ```p_files``` if they belong to the new comer. To do so, whenever a change happens to the membership list, every file server should iterate through its ```p_files```, use the ```(id * 100 + 1000 - n) mod 1000``` calculation to decide if any of them no longer belongs to itself.
 ## 3. Request Handling
 A general workflow of request handling in the HyDFS filesystem:
 
