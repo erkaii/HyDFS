@@ -169,6 +169,25 @@ func fileExistsinReplica(fs *FileServer, filename string) bool {
 	}
 }
 
+func newComers(array1, array2 []int) []int {
+	diff := []int{}
+	elements := make(map[int]bool)
+
+	// Add all elements of array1 to a map for quick lookups
+	for _, num := range array1 {
+		elements[num] = true
+	}
+
+	// Check elements in array2 and add to result if not in array1
+	for _, num := range array2 {
+		if !elements[num] {
+			diff = append(diff, num)
+		}
+	}
+
+	return diff
+}
+
 func id_to_domain(id int) string {
 	return "fa24-cs425-68" + fmt.Sprintf("%02d", id) + ".cs.illinois.edu"
 }
@@ -211,6 +230,9 @@ func updatePredList(fs *FileServer) {
 	fs.Mutex.Lock()
 	fs.pred_list = [REP_NUM]int(new_pred_list)
 	fs.Mutex.Unlock()
+
+	// newPreds := newComers(old_pred_list[:], new_pred_list)
+
 }
 
 func updateSuccList(fs *FileServer) {
@@ -248,6 +270,8 @@ func HTTPServer(fs *FileServer) {
 	http.HandleFunc("/appending", fs.httpHandleAppending)
 	http.HandleFunc("/get", fs.httpHandleGet)
 	http.HandleFunc("/getting", fs.httpHandleGetting)
+	http.HandleFunc("/store", fs.httpHandleStore)
+	http.HandleFunc("/storedfilenames", fs.httpHandleStoredfilenames)
 
 	fmt.Println("Starting HTTP server on :" + HTTP_PORT)
 	log.Fatal(http.ListenAndServe(":"+HTTP_PORT, nil))
@@ -782,6 +806,82 @@ func (fs *FileServer) httpHandleAppend(w http.ResponseWriter, r *http.Request) {
 		delete(fs.coord_append_queue, filename)
 		fs.Mutex.Unlock()
 		fmt.Fprint(w, "File uploaded to external server "+id_to_domain(responsible_server_id)+" successfully")
+		return
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (fs *FileServer) httpHandleStoredfilenames(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		ftype := r.URL.Query().Get("ftype")
+
+		var file_list map[string]File
+		fs.Mutex.Lock()
+		if ftype == "p" {
+			file_list = fs.p_files
+		} else {
+			file_list = fs.r_files
+		}
+		fs.Mutex.Unlock()
+
+		keys := make([]string, 0, len(file_list))
+		for key := range file_list {
+			keys = append(keys, key)
+		}
+
+		filenameString := strings.Join(keys, " ")
+
+		w.Write([]byte(filenameString))
+
+		return
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (fs *FileServer) httpHandleStore(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		fs.Mutex.Lock()
+		alive_ids := fs.aliveml.Alive_Ids()
+		fs.Mutex.Unlock()
+
+		response_string := ""
+
+		for _, i := range alive_ids {
+			response_string += "vm id " + strconv.Itoa(i) + ":\n"
+
+			url := fmt.Sprintf("http://%s:%s/storedfilenames?ftype=p", id_to_domain(i), HTTP_PORT)
+			req, err := http.NewRequest(http.MethodGet, url, nil)
+			if err != nil {
+				http.Error(w, "Failed when getting filenames", http.StatusInternalServerError)
+				return
+			}
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			defer resp.Body.Close()
+
+			body, _ := io.ReadAll(resp.Body)
+			response_string += "primaries: " + string(body) + "\n"
+
+			url2 := fmt.Sprintf("http://%s:%s/storedfilenames?ftype=r", id_to_domain(i), HTTP_PORT)
+			req2, err := http.NewRequest(http.MethodGet, url2, nil)
+			if err != nil {
+				http.Error(w, "Failed when getting filenames", http.StatusInternalServerError)
+				return
+			}
+			client2 := &http.Client{}
+			resp2, err := client2.Do(req2)
+			defer resp2.Body.Close()
+
+			body2, _ := io.ReadAll(resp2.Body)
+			response_string += "replicas: " + string(body2) + "\n"
+		}
+
+		w.Write([]byte(response_string))
+
 		return
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

@@ -71,6 +71,20 @@ def handle_user_input(user_input):
             print(f"Could not connect to {address}: {e}")
         return True
 
+    if parts[0] == 'store' and len(parts) == 1:
+        live_server = find_live_server()
+        if live_server:
+            try:
+                response = requests.get(live_server, timeout=2)
+                if response.status_code == 200:
+                    response = requests.get(f"{live_server}/store")
+                    print(response.text)
+            except requests.RequestException as e:
+                print(f"Could not connect to {live_server}: {e}")
+        else:
+            print("No live servers available")
+        return True
+
 
     if parts[0] == "create" and len(parts) == 3:  # dd if=/dev/urandom of=largefile.txt bs=1M count=100
                                                 # Above is a good way of generating a large text file with random text.
