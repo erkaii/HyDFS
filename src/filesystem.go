@@ -102,7 +102,10 @@ func findSuccessors(owner int, membershipList []int, n int) []int {
 		}
 	}
 
-	// Iterate starting from the owner to find 'n' successors, wrapping around if necessary
+	if listLength-1 < n {
+		n = listLength - 1
+	}
+
 	for i := 1; i <= n; i++ {
 		successorIndex := (ownerIndex + i) % listLength
 		successor := membershipList[successorIndex]
@@ -125,9 +128,12 @@ func findPredecessors(owner int, membershipList []int, n int) []int {
 		}
 	}
 
-	// Iterate starting from the owner to find 'n' successors, wrapping around if necessary
+	if listLength-1 < n {
+		n = listLength - 1
+	}
+
 	for i := 1; i <= n; i++ {
-		predecessorIndex := (ownerIndex + i) % listLength
+		predecessorIndex := (ownerIndex - i + listLength) % listLength
 		predecessor := membershipList[predecessorIndex]
 		predecessors = append(predecessors, predecessor)
 	}
@@ -231,7 +237,77 @@ func updatePredList(fs *FileServer) {
 	fs.pred_list = [REP_NUM]int(new_pred_list)
 	fs.Mutex.Unlock()
 
-	// newPreds := newComers(old_pred_list[:], new_pred_list)
+	newPreds := newComers(old_pred_list[:], new_pred_list)
+	for _, i := range newPreds {
+		fmt.Println("new pred " + strconv.Itoa(i) + "\n")
+		// Create a new request to the external server
+		url := fmt.Sprintf("http://%s:%s/storedfilenames?ftype=p", id_to_domain(i), HTTP_PORT)
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			log.Println("Oh no, handle this!")
+			fmt.Println("err1 ", err)
+			continue
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Println("Oh no, handle this!")
+			fmt.Println("err2 ", err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		var filenames []string
+
+		if resp.StatusCode == http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			filenames = strings.Split(string(body), " ")
+		}
+
+		for _, filename := range filenames {
+			url := fmt.Sprintf("http://%s:%s/getting?filename=%s&ftype=p", id_to_domain(i), HTTP_PORT, filename)
+			req2, err := http.NewRequest(http.MethodGet, url, nil)
+			if err != nil {
+				log.Println("Failed when checking file ", filename, "'s existence")
+				continue
+			}
+
+			client := &http.Client{}
+			resp, err := client.Do(req2)
+			if err != nil {
+				log.Println("Failed when checking file ", filename, "'s existence")
+				continue
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				log.Println("Rejected, file " + filename + " doesn't exist")
+				continue
+			}
+			body, _ := io.ReadAll(resp.Body)
+
+			// Open the file in append mode, or create it if it doesn't exist
+			file, err := os.OpenFile(FILE_PATH_PREFIX+filename, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				log.Println("Failed to open or create file " + filename)
+				continue
+			}
+			defer file.Close()
+
+			// Write the received content to the file
+			_, err = file.Write(body)
+			if err != nil {
+				log.Println("Failed to write content to file " + filename)
+				continue
+			}
+
+			fs.Mutex.Lock()
+			fs.r_files[filename] = File{filename: filename}
+			fs.Mutex.Unlock()
+		}
+
+	}
 
 }
 
