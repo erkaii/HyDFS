@@ -76,12 +76,25 @@ func hashKey(input string) int {
 	return int(result)
 }
 
+func equalSlices(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func findSuccessors(owner int, membershipList []int, n int) []int {
 	var successors []int
 	listLength := len(membershipList)
 
 	// Find the index of the owner in the membership list
-	var ownerIndex int
+	ownerIndex := len(membershipList)
 	for i, node := range membershipList {
 		if node == owner {
 			ownerIndex = i
@@ -95,8 +108,31 @@ func findSuccessors(owner int, membershipList []int, n int) []int {
 		successor := membershipList[successorIndex]
 		successors = append(successors, successor)
 	}
-	//fmt.Println("successors", successors, "ownerid", ownerIndex)
+
 	return successors
+}
+
+func findPredecessors(owner int, membershipList []int, n int) []int {
+	var predecessors []int
+	listLength := len(membershipList)
+
+	// Find the index of the owner in the membership list
+	ownerIndex := len(membershipList)
+	for i, node := range membershipList {
+		if node == owner {
+			ownerIndex = i
+			break
+		}
+	}
+
+	// Iterate starting from the owner to find 'n' successors, wrapping around if necessary
+	for i := 1; i <= n; i++ {
+		predecessorIndex := (ownerIndex + i) % listLength
+		predecessor := membershipList[predecessorIndex]
+		predecessors = append(predecessors, predecessor)
+	}
+
+	return predecessors
 }
 
 func findServerByfileID(ids []int, fileID int) int {
@@ -139,25 +175,68 @@ func id_to_domain(id int) string {
 
 // Maintenance Thread
 func Maintenance(fs *FileServer) {
+	online := false
+
 	for {
-		fs.Mutex.Lock()
-		if len(fs.aliveml.Alive_Ids()) == MAX_SERVER {
+		// Update online=true only if all members are in the network.
+		if !online && len(fs.aliveml.Alive_Ids()) == MAX_SERVER {
+			fs.Mutex.Lock()
 			fs.online = true
-		}
-		if !fs.online {
 			fs.Mutex.Unlock()
+		}
+
+		if !fs.online {
 			time.Sleep(time.Second)
 			continue
 		}
-		fs.Mutex.Unlock()
 
-		time.Sleep(time.Second)
+		//-------------- Maintenance logic ---------------//
+		updatePredList(fs)
+		updateSuccList(fs)
+
+		// time.Sleep(time.Second)
 	}
+}
+
+func updatePredList(fs *FileServer) {
+	new_pred_list := findPredecessors(fs.id, fs.aliveml.Alive_Ids(), REP_NUM)
+	fs.Mutex.Lock()
+	old_pred_list := fs.pred_list
+	fs.Mutex.Unlock()
+
+	if equalSlices(new_pred_list, old_pred_list[:]) {
+		return
+	}
+
+	fs.Mutex.Lock()
+	fs.pred_list = [REP_NUM]int(new_pred_list)
+	fs.Mutex.Unlock()
+}
+
+func updateSuccList(fs *FileServer) {
+	new_succ_list := findPredecessors(fs.id, fs.aliveml.Alive_Ids(), REP_NUM)
+	fs.Mutex.Lock()
+	old_succ_list := fs.succ_list
+	fs.Mutex.Unlock()
+
+	if equalSlices(new_succ_list, old_succ_list[:]) {
+		return
+	}
+
+	fs.Mutex.Lock()
+	fs.succ_list = [REP_NUM]int(new_succ_list)
+	fs.Mutex.Unlock()
 }
 
 // ------------------------- HTTP Handler -------------------------//
 // Function to start HTTP server
 func HTTPServer(fs *FileServer) {
+
+	for {
+		if fs.online {
+			break
+		}
+	}
 
 	http.HandleFunc("/", fs.httpHandleSlash)        // Handle slash request (used when client search coordinator servers)
 	http.HandleFunc("/create", fs.httpHandleCreate) // Handle file creation requests
