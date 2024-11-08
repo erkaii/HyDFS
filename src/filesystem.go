@@ -31,8 +31,8 @@ type File struct {
 
 type FileServer struct {
 	aliveml            *failuredetector.MembershipList
-	pred_list          [REP_NUM]int
-	succ_list          [REP_NUM]int
+	pred_list          []int
+	succ_list          []int
 	p_files            map[string]File
 	r_files            map[string]File
 	id                 int
@@ -48,8 +48,8 @@ func FileServerInit(ml *failuredetector.MembershipList, id int) *FileServer {
 		p_files:            make(map[string]File),
 		r_files:            make(map[string]File),
 		aliveml:            ml,
-		pred_list:          [REP_NUM]int{0},
-		succ_list:          [REP_NUM]int{0},
+		pred_list:          make([]int, 0),
+		succ_list:          make([]int, 0),
 		online:             false,
 		coord_create_queue: make(map[string]int),
 		coord_append_queue: make(map[string]int),
@@ -229,14 +229,15 @@ func updatePredList(fs *FileServer) {
 	old_pred_list := fs.pred_list
 	fs.Mutex.Unlock()
 
-	if equalSlices(new_pred_list, old_pred_list[:]) {
+	if equalSlices(new_pred_list, old_pred_list) {
 		return
 	}
 
 	fs.Mutex.Lock()
-	fs.pred_list = [REP_NUM]int(new_pred_list)
+	fs.pred_list = new_pred_list
 	fs.Mutex.Unlock()
 
+	// For replication restore
 	newPreds := newComers(old_pred_list[:], new_pred_list)
 	for _, i := range newPreds {
 		fmt.Println("new pred " + strconv.Itoa(i) + "\n")
@@ -306,9 +307,36 @@ func updatePredList(fs *FileServer) {
 			fs.r_files[filename] = File{filename: filename}
 			fs.Mutex.Unlock()
 		}
-
 	}
 
+	// For primary restore
+	movedFiles := make(map[string]bool)
+
+	fs.Mutex.Lock()
+	for k, f := range fs.r_files {
+		if findServerByfileID(fs.aliveml.Alive_Ids(), hashKey(k)) == fs.id {
+			movedFiles[k] = true
+			fs.p_files[k] = f
+			delete(fs.r_files, k)
+		}
+	}
+	fs.Mutex.Unlock()
+
+	// -> Now push the replicas that are moved from r_files to p_files
+	fs.Mutex.Lock()
+	succList := fs.succ_list
+	fs.Mutex.Unlock()
+	for k, _ := range movedFiles {
+		for _, i := range succList {
+			fileContent, _ := os.ReadFile(FILE_PATH_PREFIX + k)
+			url := fmt.Sprintf("http://%s:%s/creating?filename=%s&ftype=r", id_to_domain(i), HTTP_PORT, k)
+			req, _ := http.NewRequest(http.MethodPut, url, bytes.NewReader(fileContent))
+
+			// Send the request
+			client := &http.Client{}
+			client.Do(req)
+		}
+	}
 }
 
 func updateSuccList(fs *FileServer) {
@@ -317,12 +345,12 @@ func updateSuccList(fs *FileServer) {
 	old_succ_list := fs.succ_list
 	fs.Mutex.Unlock()
 
-	if equalSlices(new_succ_list, old_succ_list[:]) {
+	if equalSlices(new_succ_list, old_succ_list) {
 		return
 	}
 
 	fs.Mutex.Lock()
-	fs.succ_list = [REP_NUM]int(new_succ_list)
+	fs.succ_list = new_succ_list
 	fs.Mutex.Unlock()
 }
 

@@ -25,7 +25,7 @@ def find_live_server():
                 print(f"Connected to live server at {url}")
                 return url
         except requests.RequestException as e:
-            print(f"Could not connect to {url}: {e}")
+            print(f"Searching alive server, could not connect to {url}")
     return None
 
 def handle_user_input(user_input):
