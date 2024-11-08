@@ -214,7 +214,7 @@ func updatePredList(fs *FileServer) {
 }
 
 func updateSuccList(fs *FileServer) {
-	new_succ_list := findPredecessors(fs.id, fs.aliveml.Alive_Ids(), REP_NUM)
+	new_succ_list := findSuccessors(fs.id, fs.aliveml.Alive_Ids(), REP_NUM)
 	fs.Mutex.Lock()
 	old_succ_list := fs.succ_list
 	fs.Mutex.Unlock()
@@ -451,6 +451,13 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 			return
 		}
 
+		// Read the content from the request body
+		content, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read content from request body", http.StatusInternalServerError)
+			return
+		}
+
 		// Open the file in append mode, or create it if it doesn't exist
 		file, err := os.OpenFile(FILE_PATH_PREFIX+filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
@@ -460,7 +467,7 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 		defer file.Close()
 
 		// Write the received content to the file
-		_, err = io.Copy(file, r.Body)
+		_, err = file.Write(content)
 		if err != nil {
 			http.Error(w, "Failed to write content to file", http.StatusInternalServerError)
 			return
@@ -477,13 +484,13 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 
 		// Pushing changes to replicas
 		if ftype == "p" {
-			fileContent, _ := os.ReadFile(FILE_PATH_PREFIX + filename)
-
-			succ_list_temp := findSuccessors(fs.id, fs.aliveml.Alive_Ids(), REP_NUM)
+			fs.Mutex.Lock()
+			succ_list_temp := fs.succ_list
+			fs.Mutex.Unlock()
 			for _, i := range succ_list_temp {
 				// Create a new request to the external server
 				url := fmt.Sprintf("http://%s:%s/appending?filename=%s&ftype=r", id_to_domain(i), HTTP_PORT, filename)
-				req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(fileContent))
+				req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(content))
 				if err != nil {
 					http.Error(w, "Failed to create request to external server", http.StatusInternalServerError)
 					return
@@ -517,6 +524,13 @@ func (fs *FileServer) httpHandleCreating(w http.ResponseWriter, r *http.Request)
 			return
 		}
 
+		// Read the content from the request body
+		content, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read content from request body", http.StatusInternalServerError)
+			return
+		}
+
 		// Open the file in append mode, or create it if it doesn't exist
 		file, err := os.OpenFile(FILE_PATH_PREFIX+filename, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
@@ -526,7 +540,7 @@ func (fs *FileServer) httpHandleCreating(w http.ResponseWriter, r *http.Request)
 		defer file.Close()
 
 		// Write the received content to the file
-		_, err = io.Copy(file, r.Body)
+		_, err = file.Write(content)
 		if err != nil {
 			http.Error(w, "Failed to write content to file", http.StatusInternalServerError)
 			return
@@ -542,13 +556,13 @@ func (fs *FileServer) httpHandleCreating(w http.ResponseWriter, r *http.Request)
 
 		// Pushing create to replicas
 		if ftype == "p" {
-			fileContent, _ := os.ReadFile(FILE_PATH_PREFIX + filename)
-
-			succ_list_temp := findSuccessors(fs.id, fs.aliveml.Alive_Ids(), REP_NUM)
+			fs.Mutex.Lock()
+			succ_list_temp := fs.succ_list
+			fs.Mutex.Unlock()
 			for _, i := range succ_list_temp {
 				// Create a new request to the external server
 				url := fmt.Sprintf("http://%s:%s/creating?filename=%s&ftype=r", id_to_domain(i), HTTP_PORT, filename)
-				req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(fileContent))
+				req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(content))
 				if err != nil {
 					http.Error(w, "Failed to create request to external server", http.StatusInternalServerError)
 					return
