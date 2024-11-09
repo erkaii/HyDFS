@@ -14,10 +14,11 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sort"
 )
 
 const (
-	REP_NUM      = 3
+	REP_NUM      = 2
 	MAX_SERVER   = 10
 	NUM_REPLICAS = 2
 )
@@ -30,6 +31,7 @@ type FileServer struct {
 	aliveml   *failuredetector.MembershipList
 	pred_list [REP_NUM]int
 	files     map[string]File
+	replicas  map[string]File
 	id        int
 }
 
@@ -89,6 +91,67 @@ func findRange(lints []int, k int) int {
 	}
 	return -1 // If `k` is out of range, though unlikely
 }
+
+// findSuccessors returns the first 'n' alive successors of 'owner' in a circular membership list
+func findSuccessors(owner int, membershipList []int, n int) []int {
+	var successors []int
+	listLength := len(membershipList)
+
+	// Find the index of the owner in the membership list
+	var ownerIndex int
+	for i, node := range membershipList {
+		if node == owner {
+			ownerIndex = i
+			break
+		}
+	}
+
+	// Iterate starting from the owner to find 'n' successors, wrapping around if necessary
+	for i := 1; i <= n; i++ {
+		successorIndex := (ownerIndex + i) % listLength
+		successor := membershipList[successorIndex]
+		successors = append(successors, successor)
+	}
+	//fmt.Println("successors", successors, "ownerid", ownerIndex)
+	return successors
+}
+
+// findPredecessors finds the closest n predecessors for a given node in a sorted ring of active members
+func findPredecessors(nodeID int, activeMembers []int, numPredecessors int) []int {
+	//Sort the list of active members (nodes)
+	sort.Ints(activeMembers)
+
+	// Find the position of the given nodeID in the sorted list
+	var nodeIndex int
+	for i, id := range activeMembers {
+		if id == nodeID {
+			nodeIndex = i
+			break
+		}
+	}
+
+	// Select the closest numPredecessors by moving backward with wrap-around
+	predecessors := []int{}
+	for i := 1; i <= numPredecessors; i++ {
+		predIndex := (nodeIndex - i + len(activeMembers)) % len(activeMembers)
+		predecessors = append(predecessors, activeMembers[predIndex])
+	}
+
+	return predecessors
+}
+
+// func (fs *FileServer) UpdatePredecessors() bool {
+// 	activeMembers := fs.aliveml.GetActiveMembers()                          // Get the latest membership list
+// 	newPredecessors := findPredecessors(fs.id, activeMembers, NUM_REPLICAS) // Calculate new predecessors
+
+// 	// Check if predecessors have changed
+// 	if reflect.DeepEqual(fs.pred_list, newPredecessors) {
+// 		return false // No change in predecessors
+// 	}
+
+// 	fs.pred_list = newPredecessors // Update the predecessor list
+// 	return true                    // Indicate that the predecessor list was updated
+// }
 
 // Helper function to handle the file upload via HTTP POST
 func uploadFile(url, localfilename, HyDFSfilename string, isReplication bool) error {
@@ -392,6 +455,7 @@ func FileServerLaunch(fs *FileServer) {
 		// Check if this is an initial upload or replication upload
 		isReplication := r.Header.Get("X-Replication-Upload") == "true"
 		fmt.Println("isreplication", isReplication)
+
 		if remoteFilename == "" {
 			http.Error(w, "HyDFSfilename header missing", http.StatusBadRequest)
 			return
@@ -410,10 +474,14 @@ func FileServerLaunch(fs *FileServer) {
 			http.Error(w, fmt.Sprintf("Failed to write file: %v", err), http.StatusInternalServerError)
 			return
 		}
+		//secondary vms storing replicas
+		if !isReplication {
 
+		}
 		fmt.Fprintln(w, "File successfully received and saved.")
 		//Initiate replication after confirming owner upload success
-		// Only initiate replication if this is an initial upload
+		// Only initiate replication if this is an initial upload or primary owner trying to replicate
+		// else, it must be replica machines trying to store the files as replicas. so store their names
 		if isReplication {
 			mydomain := "fa24-cs425-68" + fmt.Sprintf("%02d", fs.id) + ".cs.illinois.edu"
 			rep_err := fs.ReplicateFileToSuccessors(remoteFilename, mydomain)
@@ -421,6 +489,8 @@ func FileServerLaunch(fs *FileServer) {
 				log.Printf("Warning: Failed to replicate the replica:", rep_err)
 				fmt.Println("Warning: Failed to replicate the replica:", rep_err)
 			}
+		} else {
+			fs.files[remoteFilename] = File{filename: remoteFilename}
 		}
 
 	})
@@ -493,56 +563,3 @@ func (t *FService) SearchFile(args *LR_files, reply *int) error {
 	}
 	return nil
 }
-
-// func CheckAndReplicateFiles(nodeID int, membershipList []int, fileMap map[int][]string) {
-// 	// Iterate over all nodes in the system to see if this node (nodeID) should store files as a successor
-// 	for _, owner := range membershipList {
-// 		if owner == nodeID {
-// 			continue // Skip itself
-// 		}
-
-// 		// Get the list of successors for the owner node based on membership list order
-// 		successors := findSuccessors(owner, membershipList, 2)
-
-// 		// Check if this node is a successor for the owner node
-// 		for _, successor := range successors {
-// 			if successor == nodeID {
-// 				// NodeID is a successor for this owner; check if file replication is needed
-// 				replicateFilesFromOwner(owner, fileMap[owner])
-// 				break
-// 			}
-// 		}
-// 	}
-// }
-
-// findSuccessors returns the first 'n' alive successors of 'owner' in a circular membership list
-func findSuccessors(owner int, membershipList []int, n int) []int {
-	var successors []int
-	listLength := len(membershipList)
-
-	// Find the index of the owner in the membership list
-	var ownerIndex int
-	for i, node := range membershipList {
-		if node == owner {
-			ownerIndex = i
-			break
-		}
-	}
-
-	// Iterate starting from the owner to find 'n' successors, wrapping around if necessary
-	for i := 1; i <= n; i++ {
-		successorIndex := (ownerIndex + i) % listLength
-		successor := membershipList[successorIndex]
-		successors = append(successors, successor)
-	}
-	//fmt.Println("successors", successors, "ownerid", ownerIndex)
-	return successors
-}
-
-// Function to replicate files from an owner
-// func replicateFilesFromOwner(owner int, files []string) {
-// 	for _, file := range files {
-// 		fmt.Printf("Node needs to replicate file %s from owner %d\n", file, owner)
-// 		// Logic to initiate file transfer here (could be a pull request from the owner or nearest successor)
-// 	}
-// }
