@@ -271,6 +271,9 @@ func updatePredList(fs *FileServer) {
 		}
 
 		for _, filename := range filenames {
+			if len(filename) == 0 {
+				continue
+			}
 			url := fmt.Sprintf("http://%s:%s/getting?filename=%s&ftype=p", id_to_domain(i), HTTP_PORT, filename)
 			req2, err := http.NewRequest(http.MethodGet, url, nil)
 			if err != nil {

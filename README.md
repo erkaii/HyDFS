@@ -1,6 +1,9 @@
 # HyDFS
 Hybrid Distributed File System built for CS 425 MP3
 
+## Known Issues
+1. Occasionally, the rejoin server failed to get its rejoin broadcasted to other servers.  
+
 ---
 ## Run
 Go to ```src``` folder
@@ -150,12 +153,10 @@ An example of such failure:
 
 To make things simpler, ```server 5``` **DOES NOT** intentionally monitor the live status of its direct predecessor ```server 4```. Instead, **whenever** there's an update in its ```pred_list```, ```server 5``` will iterate through all filenames in its own ```r_files```, and calculate ```(id * 100 + 1000 - n) mod 1000``` to check if ```id = 5``` is the minimum now, if YES, move that file from ```r_files``` to ```p_files```, **AND push the replications of this file** to ```server 5```'s ```k``` successors! (Pushing replications is necessary because from the perspective of ```server 7```, its ```pred_list``` doesn't change, so the replications of files ```#400``` and ```#301``` should be pushed by ```server 5``` rather than pulled by ```server 7```).
 
-### 2.3 Bonus For Rejoin
-Surprisingly, by handling the failures in such way as shown above, almost no extra implementation is needed for file server rejoins.
+### 2.3 Rejoin
+When a file server rejoins the network, its successors should iterate through the files in their ```p_files```, calculate ```(id * 100 + 1000 - n) mod 1000``` and find out those files that should below to others, send them to the corresponding servers and move them from its own ```p_files``` to ```r_files```.
 
-When a file server joins the network, according to **2.1 Failure Handling: Replication Restore**, it will firstly fetch all the replications for its new predecessors, secondly, according to **2.2 Failure Handling: Primary Restore**, it will iterate through all its ```r_files``` and check if any of them should be moved to ```p_files```. Thus **for the new comer**, NO extra implementation is needed for joining the network!
-
-However, for the file servers already in the network, some of them may need to remove the corresponding files from its ```p_files``` if they belong to the new comer. To do so, whenever a change happens to the membership list, every file server should iterate through its ```p_files```, use the ```(id * 100 + 1000 - n) mod 1000``` calculation to decide if any of them no longer belongs to itself.
+The failure handling part helps the new comer to get its replicas. For some existing servers, some replicas are no longer needed after the join of new comer, so they will iterate through their own ```r_files``` and delete those files.
 ## 3. Request Handling
 A general workflow of request handling in the HyDFS filesystem:
 
