@@ -23,6 +23,7 @@ const (
 	MAX_SERVER       = 10
 	HTTP_PORT        = "4444"
 	FILE_PATH_PREFIX = "../files/server/"
+	MOVE_TIMEOUT     = time.Second
 )
 
 type File struct {
@@ -40,6 +41,7 @@ type FileServer struct {
 	Mutex              sync.RWMutex
 	coord_create_queue map[string]int
 	coord_append_queue map[string]int
+	mv_p_to_r          map[string]time.Time
 }
 
 func FileServerInit(ml *failuredetector.MembershipList, id int) *FileServer {
@@ -53,6 +55,7 @@ func FileServerInit(ml *failuredetector.MembershipList, id int) *FileServer {
 		online:             false,
 		coord_create_queue: make(map[string]int),
 		coord_append_queue: make(map[string]int),
+		mv_p_to_r:          make(map[string]time.Time),
 	}
 }
 
@@ -218,6 +221,7 @@ func Maintenance(fs *FileServer) {
 		//-------------- Maintenance logic ---------------//
 		updatePredList(fs)
 		updateSuccList(fs)
+		delayedMove(fs)
 
 		// time.Sleep(time.Second)
 	}
@@ -326,7 +330,7 @@ func updatePredList(fs *FileServer) {
 	fs.Mutex.Lock()
 	succList := fs.succ_list
 	fs.Mutex.Unlock()
-	for k, _ := range movedFiles {
+	for k := range movedFiles {
 		for _, i := range succList {
 			fileContent, _ := os.ReadFile(FILE_PATH_PREFIX + k)
 			url := fmt.Sprintf("http://%s:%s/creating?filename=%s&ftype=r", id_to_domain(i), HTTP_PORT, k)
@@ -337,6 +341,18 @@ func updatePredList(fs *FileServer) {
 			client.Do(req)
 		}
 	}
+
+	// For rejoin (move those in p_files that no longer belong to yourself to r_files)
+	fs.Mutex.Lock()
+	for k := range fs.p_files {
+		if findServerByfileID(fs.aliveml.Alive_Ids(), hashKey(k)) != fs.id {
+			_, exist := fs.mv_p_to_r[k]
+			if !exist {
+				fs.mv_p_to_r[k] = time.Now()
+			}
+		}
+	}
+	fs.Mutex.Unlock()
 }
 
 func updateSuccList(fs *FileServer) {
@@ -352,6 +368,56 @@ func updateSuccList(fs *FileServer) {
 	fs.Mutex.Lock()
 	fs.succ_list = new_succ_list
 	fs.Mutex.Unlock()
+}
+
+func delayedMove(fs *FileServer) {
+	var toDelete []string
+	// -> Call creating to pass the file to its real owner.
+	for k, t := range fs.mv_p_to_r {
+		if time.Now().After(t.Add(MOVE_TIMEOUT)) {
+			fs.Mutex.Lock()
+			owner := findServerByfileID(fs.aliveml.Alive_Ids(), hashKey(k))
+			fs.Mutex.Unlock()
+			fileContent, _ := os.ReadFile(FILE_PATH_PREFIX + k)
+			url := fmt.Sprintf("http://%s:%s/creating?filename=%s&ftype=p", id_to_domain(owner), HTTP_PORT, k)
+			req, _ := http.NewRequest(http.MethodPut, url, bytes.NewReader(fileContent))
+
+			// Send the request
+			client := &http.Client{}
+			_, err := client.Do(req)
+
+			if err != nil {
+				fmt.Println("failed to send the p file to owner", err)
+			}
+			fs.Mutex.Lock()
+			fs.r_files[k] = fs.p_files[k]
+			delete(fs.p_files, k)
+			fs.Mutex.Unlock()
+			toDelete = append(toDelete, k)
+		}
+	}
+
+	for _, k := range toDelete {
+		delete(fs.mv_p_to_r, k)
+	}
+
+	// // -> Then remove those replicas that are no longer needed.
+	// fs.Mutex.Lock()
+	// for k := range fs.r_files {
+	// 	p_server := findServerByfileID(fs.aliveml.Alive_Ids(), hashKey(k))
+	// 	exist := false
+	// 	for _, v := range fs.pred_list {
+	// 		if v == p_server {
+	// 			exist = true
+	// 			break
+	// 		}
+	// 	}
+
+	// 	if !exist {
+	// 		delete(fs.r_files, k)
+	// 	}
+	// }
+	// fs.Mutex.Unlock()
 }
 
 // ------------------------- HTTP Handler -------------------------//
