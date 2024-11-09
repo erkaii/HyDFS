@@ -46,16 +46,23 @@ type FileServer struct {
 
 func FileServerInit(ml *failuredetector.MembershipList, id int) *FileServer {
 	return &FileServer{
-		id:                 id,
-		p_files:            make(map[string]File),
-		r_files:            make(map[string]File),
-		aliveml:            ml,
-		pred_list:          make([]int, 0),
-		succ_list:          make([]int, 0),
-		online:             false,
+		// Fields that don't need lock protection
+		id:        id,
+		online:    false,                      // I assume a single flip doesn't need to be protected that much.
+		mv_p_to_r: make(map[string]time.Time), // Since this field is never used by HTTP handler
+
+		// Shared file lists
+		p_files: make(map[string]File),
+		r_files: make(map[string]File),
+
+		// Shared membership
+		aliveml:   ml,
+		pred_list: make([]int, 0),
+		succ_list: make([]int, 0),
+
+		// Shared by multiple http handlers
 		coord_create_queue: make(map[string]int),
 		coord_append_queue: make(map[string]int),
-		mv_p_to_r:          make(map[string]time.Time),
 	}
 }
 
@@ -178,6 +185,7 @@ func fileExistsinReplica(fs *FileServer, filename string) bool {
 	}
 }
 
+// Return a []int of int that appear in array2 but missing in array1
 func newComers(array1, array2 []int) []int {
 	diff := []int{}
 	elements := make(map[int]bool)
@@ -203,17 +211,37 @@ func id_to_domain(id int) string {
 
 // Maintenance Thread
 func Maintenance(fs *FileServer) {
-	online := false
-
 	for {
 		// Update online=true only if all members are in the network.
-		if !online && len(fs.aliveml.Alive_Ids()) == MAX_SERVER {
-			fs.Mutex.Lock()
+		if !fs.online && len(fs.aliveml.Alive_Ids()) == MAX_SERVER {
 			fs.online = true
-			fs.Mutex.Unlock()
 		}
 
 		if !fs.online {
+			for _, i := range fs.aliveml.Alive_Ids() {
+				url := fmt.Sprintf("http://%s:%s/online", id_to_domain(i), HTTP_PORT)
+				req, err := http.NewRequest(http.MethodGet, url, nil)
+				if err != nil {
+					log.Println("Error in creation of http.NewRequest", err)
+					continue
+				}
+
+				client := &http.Client{}
+				resp, err := client.Do(req)
+
+				if err != nil {
+					log.Println("Error in sending request", err)
+					continue
+				}
+				defer resp.Body.Close()
+
+				body, _ := io.ReadAll(resp.Body)
+				if string(body) == "Yes" {
+					fs.online = true
+					break
+				}
+			}
+
 			time.Sleep(time.Second)
 			continue
 		}
@@ -244,21 +272,18 @@ func updatePredList(fs *FileServer) {
 	// For replication restore
 	newPreds := newComers(old_pred_list[:], new_pred_list)
 	for _, i := range newPreds {
-		fmt.Println("new pred " + strconv.Itoa(i) + "\n")
 		// Create a new request to the external server
 		url := fmt.Sprintf("http://%s:%s/storedfilenames?ftype=p", id_to_domain(i), HTTP_PORT)
 		req, err := http.NewRequest(http.MethodGet, url, nil)
 		if err != nil {
-			log.Println("Oh no, handle this!")
-			fmt.Println("err1 ", err)
+			log.Println("Error in request creation (when calling http.NewRequest) ", err)
 			continue
 		}
 
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			log.Println("Oh no, handle this!")
-			fmt.Println("err2 ", err)
+			log.Println("Error in sending http request", err)
 			continue
 		}
 		defer resp.Body.Close()
@@ -417,6 +442,7 @@ func delayedMove(fs *FileServer) {
 		}
 
 		if p_server != fs.id && !exist {
+			fmt.Println("Removing replica file " + k + " since " + strconv.Itoa(p_server) + " is not a predecessor.")
 			delete(fs.r_files, k)
 		}
 	}

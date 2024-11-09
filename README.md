@@ -2,7 +2,8 @@
 Hybrid Distributed File System built for CS 425 MP3
 
 ## Known Issues
-1. Occasionally, the rejoin server failed to get its rejoin broadcasted to other servers.  
+1. Occasionally, the rejoin server failed to get its rejoin broadcasted to other servers. 
+2. The issue with current implementation is that the rejoin will not start working until it confirms that there're 10 machines in the network, this need to be modified.  My design: Once online, all servers will have their maintanence thread sending a http request to wake up others, but initially, the online flag only gets flipped after there're 10 servers in FD. 
 
 ---
 ## Run
