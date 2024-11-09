@@ -401,23 +401,23 @@ func delayedMove(fs *FileServer) {
 		delete(fs.mv_p_to_r, k)
 	}
 
-	// // -> Then remove those replicas that are no longer needed.
-	// fs.Mutex.Lock()
-	// for k := range fs.r_files {
-	// 	p_server := findServerByfileID(fs.aliveml.Alive_Ids(), hashKey(k))
-	// 	exist := false
-	// 	for _, v := range fs.pred_list {
-	// 		if v == p_server {
-	// 			exist = true
-	// 			break
-	// 		}
-	// 	}
+	// -> Then remove those replicas that are no longer needed.
+	fs.Mutex.Lock()
+	for k := range fs.r_files {
+		p_server := findServerByfileID(fs.aliveml.Alive_Ids(), hashKey(k))
+		exist := false
+		for _, v := range fs.pred_list {
+			if v == p_server {
+				exist = true
+				break
+			}
+		}
 
-	// 	if !exist {
-	// 		delete(fs.r_files, k)
-	// 	}
-	// }
-	// fs.Mutex.Unlock()
+		if p_server != fs.id && !exist {
+			delete(fs.r_files, k)
+		}
+	}
+	fs.Mutex.Unlock()
 }
 
 // ------------------------- HTTP Handler -------------------------//
