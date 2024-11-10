@@ -202,6 +202,7 @@ def handle_user_input(user_input):
                 
                 if response.ok:
                     # Step 2: Send the actual file content
+                    print("File content received, length ", len(response.text))
                     with open(FILE_PATH_PREFIX + local, 'w') as f:
                         f.write(response.text)
                     print("File get successfully!")

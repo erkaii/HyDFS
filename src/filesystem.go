@@ -901,9 +901,8 @@ func (fs *FileServer) httpHandleGet(w http.ResponseWriter, r *http.Request) {
 		url := fmt.Sprintf("http://%s:%s/getting?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, hydfs)
 		req2, _ := http.NewRequest(http.MethodGet, url, nil)
 
-		client := &http.Client{}
+		client := &http.Client{Timeout: time.Minute * 2}
 		resp, err := client.Do(req2)
-		defer resp.Body.Close()
 
 		if err != nil {
 			log.Println("Error in making getting requesting to external servers")
@@ -915,10 +914,11 @@ func (fs *FileServer) httpHandleGet(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Rejected, file "+hydfs+" doesn't exist", http.StatusBadRequest)
 			return
 		}
-
 		// Stream the response body to the response writer directly
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, err = io.Copy(w, resp.Body)
+
+		defer resp.Body.Close()
 		if err != nil {
 			log.Println("Error while sending file content:", err)
 			http.Error(w, "Error sending file content", http.StatusInternalServerError)
@@ -949,16 +949,17 @@ func (fs *FileServer) httpHandleGetting(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		// Attempt to read the file content
-		fileContent, err := os.ReadFile(FILE_PATH_PREFIX + filename)
+		file, err := os.Open(FILE_PATH_PREFIX + filename)
 		if err != nil {
-			http.Error(w, "Could not read file: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Could not open file: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		defer file.Close()
 
-		// Send the file content as the HTTP response
 		w.WriteHeader(http.StatusOK)
-		w.Write(fileContent)
+		if _, err := io.Copy(w, file); err != nil {
+			http.Error(w, "Failed to send file: "+err.Error(), http.StatusInternalServerError)
+		}
 
 		return
 	default:
