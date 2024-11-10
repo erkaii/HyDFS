@@ -478,7 +478,7 @@ func automerge(fs *FileServer) {
 				return timestamps[i].Before(timestamps[j])
 			})
 
-			if time.Now().After(timestamps[len(timestamps)-1].Add(2 * time.Second)) {
+			if time.Now().After(timestamps[len(timestamps)-1].Add(5 * time.Second)) {
 				url := fmt.Sprintf("http://%s:%s/merging?filename=%s", id_to_domain(fs.id), HTTP_PORT, f.filename)
 				req, _ := http.NewRequest(http.MethodGet, url, nil)
 
@@ -500,7 +500,7 @@ func automerge(fs *FileServer) {
 				return timestamps[i].Before(timestamps[j])
 			})
 
-			if time.Now().After(timestamps[len(timestamps)-1].Add(2 * time.Second)) {
+			if time.Now().After(timestamps[len(timestamps)-1].Add(5 * time.Second)) {
 				url := fmt.Sprintf("http://%s:%s/merging?filename=%s", id_to_domain(fs.id), HTTP_PORT, f.filename)
 				req, _ := http.NewRequest(http.MethodGet, url, nil)
 
@@ -751,8 +751,10 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 			return
 		}
 
-		fmt.Println("Appending")
-		fmt.Println(string(content))
+		if initFlag == "true" {
+			fmt.Println("Appending")
+			fmt.Println(string(content))
+		}
 
 		// Respond to confirm the operation was successful
 		fs.Mutex.Lock()
@@ -1039,7 +1041,7 @@ func (fs *FileServer) httpHandleAppend(w http.ResponseWriter, r *http.Request) {
 		}
 
 		fs.Mutex.Lock()
-		responsible_server_id, _ := fs.coord_append_queue[filename]
+		responsible_server_id := findServerByfileID(fs.aliveml.Alive_Ids(), hashKey(filename))
 		fs.Mutex.Unlock()
 
 		if num == "1" {

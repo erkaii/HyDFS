@@ -160,27 +160,28 @@ def handle_user_input(user_input):
             try:
                 # Step 1: Request authorization for each file to append
                 with ThreadPoolExecutor(max_workers=4) as executor:
-                    futures = []
-                    for i, local in enumerate(local_files):
-                        data = {"local": local, "hydfs": hydfs}
-                        futures.append(executor.submit(requests.post, f"{live_server}/append", json=data))
+                    auth_futures = {executor.submit(requests.post, f"{live_server}/append", json={"local": local, "hydfs": hydfs}): local for local in local_files}
                     
-                    # Wait for all authorization requests to finish
-                    for future in futures:
+                    # Check each authorization response
+                    for future in auth_futures:
+                        local = auth_futures[future]
                         response = future.result()
                         if response.ok:
                             print(f"Authorization for {local} from server:", response.text)
                         else:
                             print(f"Authorization failed for {local}:", response.text)
                     
-                    # Step 2: Upload the actual file contents
+                    # Step 2: Upload the actual file contents concurrently
+                    upload_futures = []
                     for i, local in enumerate(local_files):
                         with open(FILE_PATH_PREFIX + local, 'rb') as f:
-                            upload_response = requests.put(f"{live_server}/append?filename={hydfs}&num={i}", data=f)
-                            if upload_response.ok:
-                                print(f"File {local} upload complete:", upload_response.text)
-                            else:
-                                print(f"File {local} upload failed:", upload_response.text)
+                            upload_futures.append((local, requests.put(f"{live_server}/append?filename={hydfs}&num={i}", data=f)))
+
+                    for local, upload_response in upload_futures:
+                        if upload_response.ok:
+                            print(f"File {local} upload complete:", upload_response.text)
+                        else:
+                            print(f"File {local} upload failed:", upload_response.text)
 
             except requests.RequestException as e:
                 print("Request to server failed:", e)
