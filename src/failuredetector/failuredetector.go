@@ -12,10 +12,10 @@ const (
 	K              = 3               // Number of random machines to ask for a ping
 	Timeout        = 2 * time.Second // Timeout for receiving an ACK
 	RepingTimeout  = 2 * time.Second
-	PingPort       = "2234"
-	RepingPort     = "2235"
-	GossipPort     = "2236"
-	CmdPort        = "2237" // Used in HyDFS to listen for commands from clients
+	PingPort       = "1234"
+	RepingPort     = "1235"
+	GossipPort     = "1236"
+	CmdPort        = "1237" // Used in HyDFS to listen for commands from clients
 	G              = 4
 	GossipDuration = 3 * time.Second
 	IntroducerAddr = "fa24-cs425-6801.cs.illinois.edu"

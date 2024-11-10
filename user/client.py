@@ -1,6 +1,7 @@
 import requests
+import os 
 
-HTTP_PORT = "4444"
+HTTP_PORT = "3333"
 FILE_PATH_PREFIX = "../files/client/"
 
 # List of server addresses to check
@@ -15,6 +16,21 @@ server_addresses = ["http://fa24-cs425-6801.cs.illinois.edu",
                     "http://fa24-cs425-6809.cs.illinois.edu", 
                     "http://fa24-cs425-6810.cs.illinois.edu"]
 
+
+CACHE_DIR="../files/client/"
+def get_cache_timestamp(local):
+    file_path = os.path.join(CACHE_DIR, local)
+    if os.path.exists(file_path):
+        print("modified time",os.path.getmtime(file_path))
+        return os.path.getmtime(file_path)  # Get timestamp in seconds since epoch
+        
+    return None
+
+def add_to_cache(local, content, timestamp):
+    file_path = os.path.join(CACHE_DIR, local)
+    with open(file_path, 'w') as f:
+        f.write(content)
+    os.utime(file_path, (timestamp, timestamp))  # Set timestamp for cache validation
 
 def find_live_server():
     for address in server_addresses:
@@ -148,18 +164,32 @@ def handle_user_input(user_input):
         return True
 
     if parts[0] == "get" and len(parts) == 3:  # dd if=/dev/urandom of=largefile.txt bs=1M count=100
-                                                # Above is a good way of generating a large text file with random text.
-        hydfs, local = parts[1], parts[2]
+                                             # Above is a good way of generating a large text file with random text.
         
+        #get time stamp of file (cache)
+        
+        hydfs, local = parts[1], parts[2]
+        cache_timestamp = get_cache_timestamp(local)
+
         live_server = find_live_server()
         if live_server:
             try:
+                headers = {"Content-Type": "application/json"}
                 # Step 1: Request authorization to create the file
-                data = {"local": local, "hydfs": hydfs}
-                response = requests.get(f"{live_server}/get", json=data)
-                
-                if response.ok:
-                    # Step 2: Send the actual file content
+                data = {"local": local, "hydfs": hydfs,  "cache_timestamp": str(cache_timestamp) if cache_timestamp else ""}
+                response = requests.get(f"{live_server}/get", json=data, headers=headers)
+                if response.status_code == 304:
+                    print("Using cached version of the file.")
+                    # with open(CACHE_DIR + local, 'r') as f:
+                    #     print(f.read())
+
+                    
+
+                elif response.ok:
+                    print("File retrieved from server and cached.")
+                      # Step 2: Send the actual file content
+                    server_timestamp = response.headers.get("Timestamp", None)
+                    add_to_cache(local, response.text, float(server_timestamp))
                     with open(FILE_PATH_PREFIX + local, 'w') as f:
                         f.write(response.text)
                     print("File get successfully!")

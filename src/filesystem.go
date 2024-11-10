@@ -21,7 +21,7 @@ import (
 const (
 	REP_NUM          = 3
 	MAX_SERVER       = 10
-	HTTP_PORT        = "4444"
+	HTTP_PORT        = "3333"
 	FILE_PATH_PREFIX = "../files/server/"
 	MOVE_TIMEOUT     = time.Second
 )
@@ -471,7 +471,7 @@ func HTTPServer(fs *FileServer) {
 	http.HandleFunc("/getting", fs.httpHandleGetting)
 	http.HandleFunc("/store", fs.httpHandleStore)
 	http.HandleFunc("/storedfilenames", fs.httpHandleStoredfilenames)
-
+	http.HandleFunc("/timestamp", fs.httpHandleTimestamp)
 	fmt.Println("Starting HTTP server on :" + HTTP_PORT)
 	log.Fatal(http.ListenAndServe(":"+HTTP_PORT, nil))
 }
@@ -821,6 +821,8 @@ func (fs *FileServer) httpHandleGet(w http.ResponseWriter, r *http.Request) {
 		// Access file1 and file2 directly from the map
 		_, localExists := req["local"]
 		hydfs, hydfsExists := req["hydfs"]
+		clientTimestampStr, cacheTimestampExists := req["cache_timestamp"]
+
 		if !localExists || !hydfsExists {
 			http.Error(w, "Missing localfilename or HyDFSfilename in request", http.StatusBadRequest)
 			return
@@ -833,6 +835,26 @@ func (fs *FileServer) httpHandleGet(w http.ResponseWriter, r *http.Request) {
 			log.Println("Invalid findServerByfileID result in httpHandleCreate")
 			http.Error(w, "Rejected due to server internal error", http.StatusBadRequest)
 			return
+		}
+
+		// Parse client timestamp if available
+		// Get the latest timestamp from the primary node
+		latestTimestamp, _ := getLatestTimestamp(responsible_server_id, hydfs)
+
+		// If a cache timestamp exists, parse it and perform timestamp comparison
+		if cacheTimestampExists && clientTimestampStr != "" {
+			clientTimestamp, err := strconv.ParseFloat(clientTimestampStr, 64)
+			if err != nil {
+				http.Error(w, "Invalid timestamp format", http.StatusBadRequest)
+				return
+			}
+
+			// Compare the client's cache timestamp with the latest timestamp
+			if clientTimestamp >= latestTimestamp {
+				// Cache is still valid; send 304 Not Modified
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
 		}
 
 		url := fmt.Sprintf("http://%s:%s/getting?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, hydfs)
@@ -851,8 +873,15 @@ func (fs *FileServer) httpHandleGet(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Fprintf(w, "%s", string(body))
+		body, err_read := io.ReadAll(resp.Body)
+		if err_read != nil {
+			http.Error(w, "Error reading file content", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Timestamp", fmt.Sprintf("%f", latestTimestamp))
+		w.WriteHeader(http.StatusOK)
+		w.Write(body)
 
 		return
 	default:
@@ -1085,4 +1114,67 @@ func (fs *FileServer) httpHandleStore(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// httpHandleTimestamp serves the modification timestamp of a specified file
+func (fs *FileServer) httpHandleTimestamp(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		// Get the filename from the query parameters
+		filename := r.URL.Query().Get("filename")
+		if filename == "" {
+			http.Error(w, "Missing filename parameter", http.StatusBadRequest)
+			return
+		}
+
+		// Construct the file path
+		filePath := FILE_PATH_PREFIX + filename // Define FILE_PATH_PREFIX to the directory containing files
+
+		// Get the file info to retrieve the modification time
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			// Handle error if the file does not exist or cannot be accessed
+			http.Error(w, "File not found or inaccessible", http.StatusNotFound)
+			return
+		}
+
+		// Get the modification time and convert it to seconds since the epoch
+		modTime := fileInfo.ModTime().Unix()
+
+		// Write the modification time as a plain response
+		fmt.Fprintf(w, "%d", modTime)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// getLatestTimestamp queries the primary server to get the latest modification timestamp for the file
+func getLatestTimestamp(primaryServerID int, filename string) (float64, error) {
+	// Construct the URL for querying the timestamp on the primary server
+	url := fmt.Sprintf("http://%s:%s/timestamp?filename=%s", id_to_domain(primaryServerID), HTTP_PORT, filename)
+
+	// Make the HTTP request
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Printf("Failed to fetch timestamp from primary server %d: %v\n", primaryServerID, err)
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	// Read the timestamp from the response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read response from primary server %d: %v\n", primaryServerID, err)
+		return 0, err
+	}
+
+	// Parse the timestamp as a float
+	timestamp, err := strconv.ParseFloat(string(body), 64)
+	if err != nil {
+		log.Printf("Failed to parse timestamp from primary server %d: %v\n", primaryServerID, err)
+		return 0, err
+	}
+
+	return timestamp, nil
 }
