@@ -163,33 +163,58 @@ def handle_user_input(user_input):
             print("No live servers available")
         return True
 
-    if parts[0] == "get" and len(parts) == 3:  # dd if=/dev/urandom of=largefile.txt bs=1M count=100
-                                             # Above is a good way of generating a large text file with random text.
+    # if parts[0] == "get" and len(parts) == 3:  # dd if=/dev/urandom of=largefile.txt bs=1M count=100
+    #                                          # Above is a good way of generating a large text file with random text.
         
-        #get time stamp of file (cache)
+    #     #get time stamp of file (cache)
         
-        hydfs, local = parts[1], parts[2]
-        cache_timestamp = get_cache_timestamp(local)
+    #     hydfs, local = parts[1], parts[2]
+    #     cache_timestamp = get_cache_timestamp(local)
 
-        live_server = find_live_server()
-        if live_server:
-            try:
-                headers = {"Content-Type": "application/json"}
-                # Step 1: Request authorization to create the file
-                data = {"local": local, "hydfs": hydfs,  "cache_timestamp": str(cache_timestamp) if cache_timestamp else ""}
-                response = requests.get(f"{live_server}/get", json=data, headers=headers)
-                if response.status_code == 304:
-                    print("Using cached version of the file.")
-                    # with open(CACHE_DIR + local, 'r') as f:
-                    #     print(f.read())
+    #     live_server = find_live_server()
+    #     if live_server:
+    #         try:
+    #             headers = {"Content-Type": "application/json"}
+    #             # Step 1: Request authorization to create the file
+    #             data = {"local": local, "hydfs": hydfs,  "cache_timestamp": str(cache_timestamp) if cache_timestamp else ""}
+    #             response = requests.get(f"{live_server}/get", json=data, headers=headers)
+    #             if response.status_code == 304:
+    #                 print("Using cached version of the file.")
+    #                 # with open(CACHE_DIR + local, 'r') as f:
+    #                 #     print(f.read())
 
                     
 
-                elif response.ok:
-                    print("File retrieved from server and cached.")
-                      # Step 2: Send the actual file content
-                    server_timestamp = response.headers.get("Timestamp", None)
-                    add_to_cache(local, response.text, float(server_timestamp))
+    #             elif response.ok:
+    #                 print("File retrieved from server and cached.")
+    #                   # Step 2: Send the actual file content
+    #                 server_timestamp = response.headers.get("Timestamp", None)
+    #                 add_to_cache(local, response.text, float(server_timestamp))
+    #                 with open(FILE_PATH_PREFIX + local, 'w') as f:
+    #                     f.write(response.text)
+    #                 print("File get successfully!")
+    #             else:
+    #                 print("Get file failed:", response.text)
+
+    #         except requests.RequestException as e:
+    #             print("Request to server failed:", e)
+    #     else:
+    #         print("No live servers available")
+    #     return True
+
+    if parts[0] == "get" and len(parts) == 3:  # dd if=/dev/urandom of=largefile.txt bs=1M count=100
+                                            # Above is a good way of generating a large text file with random text.
+        hydfs, local = parts[1], parts[2]
+        
+        live_server = find_live_server()
+        if live_server:
+            try:
+                # Step 1: Request authorization to create the file
+                data = {"local": local, "hydfs": hydfs}
+                response = requests.get(f"{live_server}/get", json=data)
+                
+                if response.ok:
+                    # Step 2: Send the actual file content
                     with open(FILE_PATH_PREFIX + local, 'w') as f:
                         f.write(response.text)
                     print("File get successfully!")

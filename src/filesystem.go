@@ -808,6 +808,124 @@ func (fs *FileServer) httpHandleCreating(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// func (fs *FileServer) httpHandleGet(w http.ResponseWriter, r *http.Request) {
+// 	switch r.Method {
+// 	case http.MethodGet:
+// 		var req map[string]string
+// 		err := json.NewDecoder(r.Body).Decode(&req)
+// 		if err != nil {
+// 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+// 			return
+// 		}
+
+// 		// Access file1 and file2 directly from the map
+// 		_, localExists := req["local"]
+// 		hydfs, hydfsExists := req["hydfs"]
+// 		clientTimestampStr, cacheTimestampExists := req["cache_timestamp"]
+
+// 		if !localExists || !hydfsExists {
+// 			http.Error(w, "Missing localfilename or HyDFSfilename in request", http.StatusBadRequest)
+// 			return
+// 		}
+
+// 		// Find out the primary server of the HyDFS file
+// 		fileID := hashKey(hydfs)
+// 		responsible_server_id := findServerByfileID(fs.aliveml.Alive_Ids(), fileID)
+// 		if responsible_server_id == -1 {
+// 			log.Println("Invalid findServerByfileID result in httpHandleCreate")
+// 			http.Error(w, "Rejected due to server internal error", http.StatusBadRequest)
+// 			return
+// 		}
+
+// 		// Parse client timestamp if available
+// 		// Get the latest timestamp from the primary node
+// 		latestTimestamp, _ := getLatestTimestamp(responsible_server_id, hydfs)
+
+// 		// If a cache timestamp exists, parse it and perform timestamp comparison
+// 		if cacheTimestampExists && clientTimestampStr != "" {
+// 			clientTimestamp, err := strconv.ParseFloat(clientTimestampStr, 64)
+// 			if err != nil {
+// 				http.Error(w, "Invalid timestamp format", http.StatusBadRequest)
+// 				return
+// 			}
+
+// 			// Compare the client's cache timestamp with the latest timestamp
+// 			if clientTimestamp >= latestTimestamp {
+// 				// Cache is still valid; send 304 Not Modified
+// 				w.WriteHeader(http.StatusNotModified)
+// 				return
+// 			}
+// 		}
+
+// 		url := fmt.Sprintf("http://%s:%s/getting?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, hydfs)
+// 		req2, err := http.NewRequest(http.MethodGet, url, nil)
+// 		if err != nil {
+// 			http.Error(w, "Failed when checking file existence", http.StatusInternalServerError)
+// 			return
+// 		}
+
+// 		client := &http.Client{}
+// 		resp, err := client.Do(req2)
+// 		defer resp.Body.Close()
+
+// 		if resp.StatusCode != http.StatusOK {
+// 			http.Error(w, "Rejected, file "+hydfs+" doesn't exist", http.StatusBadRequest)
+// 			return
+// 		}
+
+// 		body, err_read := io.ReadAll(resp.Body)
+// 		if err_read != nil {
+// 			http.Error(w, "Error reading file content", http.StatusInternalServerError)
+// 			return
+// 		}
+
+// 		w.Header().Set("Timestamp", fmt.Sprintf("%f", latestTimestamp))
+// 		w.WriteHeader(http.StatusOK)
+// 		w.Write(body)
+
+// 		return
+// 	default:
+// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// 	}
+// }
+
+// func (fs *FileServer) httpHandleGetting(w http.ResponseWriter, r *http.Request) {
+// 	switch r.Method {
+// 	case http.MethodGet:
+// 		filename := r.URL.Query().Get("filename")
+// 		ftype := r.URL.Query().Get("ftype")
+
+// 		exist_flag := false
+// 		fs.Mutex.Lock()
+// 		if ftype == "p" {
+// 			_, exist_flag = fs.p_files[filename]
+// 		} else {
+// 			_, exist_flag = fs.r_files[filename]
+// 		}
+// 		fs.Mutex.Unlock()
+
+// 		if !exist_flag {
+// 			http.Error(w, "Rejected, file "+filename+" doesn't exist", http.StatusBadRequest)
+// 		}
+
+// 		// Attempt to read the file content
+// 		fileContent, err := os.ReadFile(FILE_PATH_PREFIX + filename)
+// 		if err != nil {
+// 			http.Error(w, "Could not read file: "+err.Error(), http.StatusInternalServerError)
+// 			return
+// 		}
+
+// 		// Send the file content as the HTTP response
+// 		w.WriteHeader(http.StatusOK)
+// 		w.Write(fileContent)
+
+//			return
+//		default:
+//			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+//		}
+//	}
+
+// ------------------------------without cache-----------------------------
 func (fs *FileServer) httpHandleGet(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -821,8 +939,6 @@ func (fs *FileServer) httpHandleGet(w http.ResponseWriter, r *http.Request) {
 		// Access file1 and file2 directly from the map
 		_, localExists := req["local"]
 		hydfs, hydfsExists := req["hydfs"]
-		clientTimestampStr, cacheTimestampExists := req["cache_timestamp"]
-
 		if !localExists || !hydfsExists {
 			http.Error(w, "Missing localfilename or HyDFSfilename in request", http.StatusBadRequest)
 			return
@@ -837,52 +953,31 @@ func (fs *FileServer) httpHandleGet(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Parse client timestamp if available
-		// Get the latest timestamp from the primary node
-		latestTimestamp, _ := getLatestTimestamp(responsible_server_id, hydfs)
-
-		// If a cache timestamp exists, parse it and perform timestamp comparison
-		if cacheTimestampExists && clientTimestampStr != "" {
-			clientTimestamp, err := strconv.ParseFloat(clientTimestampStr, 64)
-			if err != nil {
-				http.Error(w, "Invalid timestamp format", http.StatusBadRequest)
-				return
-			}
-
-			// Compare the client's cache timestamp with the latest timestamp
-			if clientTimestamp >= latestTimestamp {
-				// Cache is still valid; send 304 Not Modified
-				w.WriteHeader(http.StatusNotModified)
-				return
-			}
-		}
-
 		url := fmt.Sprintf("http://%s:%s/getting?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, hydfs)
-		req2, err := http.NewRequest(http.MethodGet, url, nil)
-		if err != nil {
-			http.Error(w, "Failed when checking file existence", http.StatusInternalServerError)
-			return
-		}
+		req2, _ := http.NewRequest(http.MethodGet, url, nil)
 
 		client := &http.Client{}
 		resp, err := client.Do(req2)
 		defer resp.Body.Close()
+
+		if err != nil {
+			log.Println("Error in making getting requesting to external servers")
+			http.Error(w, "Error fetching the file, internal error", http.StatusInternalServerError)
+			return
+		}
 
 		if resp.StatusCode != http.StatusOK {
 			http.Error(w, "Rejected, file "+hydfs+" doesn't exist", http.StatusBadRequest)
 			return
 		}
 
-		body, err_read := io.ReadAll(resp.Body)
-		if err_read != nil {
-			http.Error(w, "Error reading file content", http.StatusInternalServerError)
-			return
+		// Stream the response body to the response writer directly
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, err = io.Copy(w, resp.Body)
+		if err != nil {
+			log.Println("Error while sending file content:", err)
+			http.Error(w, "Error sending file content", http.StatusInternalServerError)
 		}
-
-		w.Header().Set("Timestamp", fmt.Sprintf("%f", latestTimestamp))
-		w.WriteHeader(http.StatusOK)
-		w.Write(body)
-
 		return
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -906,6 +1001,7 @@ func (fs *FileServer) httpHandleGetting(w http.ResponseWriter, r *http.Request) 
 
 		if !exist_flag {
 			http.Error(w, "Rejected, file "+filename+" doesn't exist", http.StatusBadRequest)
+			return
 		}
 
 		// Attempt to read the file content
@@ -924,7 +1020,6 @@ func (fs *FileServer) httpHandleGetting(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
-
 func (fs *FileServer) httpHandleAppend(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
