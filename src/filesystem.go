@@ -25,6 +25,7 @@ const (
 	HTTP_PORT        = "4444"
 	FILE_PATH_PREFIX = "../files/server/"
 	MOVE_TIMEOUT     = time.Second
+	MERGE_TIMEOUT    = 10 * time.Second
 )
 
 type File struct {
@@ -478,7 +479,7 @@ func automerge(fs *FileServer) {
 				return timestamps[i].Before(timestamps[j])
 			})
 
-			if time.Now().After(timestamps[len(timestamps)-1].Add(5 * time.Second)) {
+			if time.Now().After(timestamps[len(timestamps)-1].Add(MERGE_TIMEOUT)) {
 				url := fmt.Sprintf("http://%s:%s/merging?filename=%s", id_to_domain(fs.id), HTTP_PORT, f.filename)
 				req, _ := http.NewRequest(http.MethodGet, url, nil)
 
@@ -736,7 +737,7 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 		timeStampStr := r.URL.Query().Get("timestamp")
 		initFlag := r.URL.Query().Get("init")
 
-		timestamp, _ := time.Parse(time.RFC3339, timeStampStr)
+		timestamp, _ := time.Parse(time.RFC3339Nano, timeStampStr)
 		if filename == "" {
 			log.Println("HandleAppending Filename not specified")
 			http.Error(w, "Filename not specified", http.StatusBadRequest)
@@ -756,7 +757,6 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 			fmt.Println(string(content))
 		}
 
-		// Respond to confirm the operation was successful
 		fs.Mutex.Lock()
 		alive_ids := fs.aliveml.Alive_Ids()
 		_, exist := fs.p_files[filename]
@@ -777,7 +777,7 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 			reps := findSuccessors(p_server_id, alive_ids, REP_NUM)
 			if p_server_id != fs.id {
 				// Create a new request to the external server
-				url := fmt.Sprintf("http://%s:%s/appending?filename=%s&timestamp=%s&init=false", id_to_domain(p_server_id), HTTP_PORT, filename, timestamp.Format(time.RFC3339))
+				url := fmt.Sprintf("http://%s:%s/appending?filename=%s&timestamp=%s&init=false", id_to_domain(p_server_id), HTTP_PORT, filename, timestamp.Format(time.RFC3339Nano))
 				req, _ := http.NewRequest(http.MethodPut, url, bytes.NewReader(content))
 
 				// Send the request
@@ -787,7 +787,7 @@ func (fs *FileServer) httpHandleAppending(w http.ResponseWriter, r *http.Request
 			for _, i := range reps {
 				if i != fs.id {
 					// Create a new request to the external server
-					url := fmt.Sprintf("http://%s:%s/appending?filename=%s&timestamp=%s&init=false", id_to_domain(i), HTTP_PORT, filename, timestamp.Format(time.RFC3339))
+					url := fmt.Sprintf("http://%s:%s/appending?filename=%s&timestamp=%s&init=false", id_to_domain(i), HTTP_PORT, filename, timestamp.Format(time.RFC3339Nano))
 					req, _ := http.NewRequest(http.MethodPut, url, bytes.NewReader(content))
 
 					// Send the request
@@ -1057,7 +1057,7 @@ func (fs *FileServer) httpHandleAppend(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Create a new request to the external server
-		url := fmt.Sprintf("http://%s:%s/appending?filename=%s&timestamp=%s&init=true", id_to_domain(responsible_server_id), HTTP_PORT, filename, time.Now().Format(time.RFC3339))
+		url := fmt.Sprintf("http://%s:%s/appending?filename=%s&timestamp=%s&init=true", id_to_domain(responsible_server_id), HTTP_PORT, filename, time.Now().Format(time.RFC3339Nano))
 		req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(fileContent))
 		if err != nil {
 			http.Error(w, "Failed to create request to external server", http.StatusInternalServerError)
