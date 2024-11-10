@@ -1,4 +1,6 @@
 import requests
+import random
+from concurrent.futures import ThreadPoolExecutor
 
 HTTP_PORT = "4444"
 FILE_PATH_PREFIX = "../files/client/"
@@ -17,7 +19,9 @@ server_addresses = ["http://fa24-cs425-6801.cs.illinois.edu",
 
 
 def find_live_server():
-    for address in server_addresses:
+    random_number = random.randint(1, 10)
+    for i in range(10):
+        address = server_addresses[(random_number + i)%10]
         url = f"{address}:" + HTTP_PORT
         try:
             response = requests.get(url, timeout=2)
@@ -132,7 +136,7 @@ def handle_user_input(user_input):
                     
                     # Step 2: Send the actual file content
                     with open(FILE_PATH_PREFIX + local, 'rb') as f:
-                        upload_response = requests.put(f"{live_server}/append?filename={hydfs}", data=f)
+                        upload_response = requests.put(f"{live_server}/append?filename={hydfs}&num=0", data=f)
                     
                     if upload_response.ok:
                         print("File upload complete:", upload_response.text)
@@ -140,6 +144,43 @@ def handle_user_input(user_input):
                         print("File upload failed:", upload_response.text)
                 else:
                     print("Authorization failed:", response.text)
+
+            except requests.RequestException as e:
+                print("Request to server failed:", e)
+        else:
+            print("No live servers available")
+        return True
+
+    if parts[0] == "multiappend" and len(parts) == 6:
+        local_files = parts[1:5]
+        hydfs = parts[5]
+
+        live_server = find_live_server()
+        if live_server:
+            try:
+                # Step 1: Request authorization for each file to append
+                with ThreadPoolExecutor(max_workers=4) as executor:
+                    futures = []
+                    for i, local in enumerate(local_files):
+                        data = {"local": local, "hydfs": hydfs}
+                        futures.append(executor.submit(requests.post, f"{live_server}/append", json=data))
+                    
+                    # Wait for all authorization requests to finish
+                    for future in futures:
+                        response = future.result()
+                        if response.ok:
+                            print(f"Authorization for {local} from server:", response.text)
+                        else:
+                            print(f"Authorization failed for {local}:", response.text)
+                    
+                    # Step 2: Upload the actual file contents
+                    for i, local in enumerate(local_files):
+                        with open(FILE_PATH_PREFIX + local, 'rb') as f:
+                            upload_response = requests.put(f"{live_server}/append?filename={hydfs}&num={i}", data=f)
+                            if upload_response.ok:
+                                print(f"File {local} upload complete:", upload_response.text)
+                            else:
+                                print(f"File {local} upload failed:", upload_response.text)
 
             except requests.RequestException as e:
                 print("Request to server failed:", e)
@@ -165,6 +206,25 @@ def handle_user_input(user_input):
                     print("File get successfully!")
                 else:
                     print("Get file failed:", response.text)
+
+            except requests.RequestException as e:
+                print("Request to server failed:", e)
+        else:
+            print("No live servers available")
+        return True
+
+    if parts[0] == "merge" and len(parts) == 2:  
+        filename = parts[1]
+        
+        live_server = find_live_server()
+        if live_server:
+            try:
+                response = requests.get(f"{live_server}/merge?filename={filename}")
+                
+                if response.ok:
+                    print("File merged successfully!")
+                else:
+                    print("Merge file failed:", response.text)
 
             except requests.RequestException as e:
                 print("Request to server failed:", e)
