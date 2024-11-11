@@ -102,14 +102,14 @@ def handle_user_input(user_input):
                 response = requests.post(f"{live_server}/create", json=data)
                 
                 if response.ok:
-                    print("Authorization from server:", response.text)
+                    print("Authorization received from server")
                     
                     # Step 2: Send the actual file content
                     with open(FILE_PATH_PREFIX + local, 'rb') as f:
                         upload_response = requests.put(f"{live_server}/create?filename={hydfs}", data=f)
                     
                     if upload_response.ok:
-                        print("File upload complete:", upload_response.text)
+                        print("File upload complete")
                     else:
                         print("File upload failed:", upload_response.text)
                 else:
@@ -132,14 +132,14 @@ def handle_user_input(user_input):
                 response = requests.post(f"{live_server}/append", json=data)
                 
                 if response.ok:
-                    print("Authorization from server:", response.text)
+                    print("Authorization received from server")
                     
                     # Step 2: Send the actual file content
                     with open(FILE_PATH_PREFIX + local, 'rb') as f:
                         upload_response = requests.put(f"{live_server}/append?filename={hydfs}&num=0", data=f)
                     
                     if upload_response.ok:
-                        print("File upload complete:", upload_response.text)
+                        print("File upload complete")
                     else:
                         print("File upload failed:", upload_response.text)
                 else:
@@ -167,7 +167,7 @@ def handle_user_input(user_input):
                         local = auth_futures[future]
                         response = future.result()
                         if response.ok:
-                            print(f"Authorization for {local} from server:", response.text)
+                            print(f"Authorization for {local} received from server")
                         else:
                             print(f"Authorization failed for {local}:", response.text)
                     
@@ -179,7 +179,7 @@ def handle_user_input(user_input):
 
                     for local, upload_response in upload_futures:
                         if upload_response.ok:
-                            print(f"File {local} upload complete:", upload_response.text)
+                            print(f"File {local} upload complete")
                         else:
                             print(f"File {local} upload failed:", upload_response.text)
 
@@ -214,8 +214,7 @@ def handle_user_input(user_input):
             print("No live servers available")
         return True
 
-    if parts[0] == "getfromreplica" and len(parts) == 4:  # dd if=/dev/urandom of=largefile.txt bs=1M count=100
-                                                # Above is a good way of generating a large text file with random text.
+    if parts[0] == "getfromreplica" and len(parts) == 4:  
         vm_id, hydfs, local = parts[1], parts[2], parts[3]
         
         live_server = find_live_server()
@@ -239,8 +238,7 @@ def handle_user_input(user_input):
             print("No live servers available")
         return True
 
-    if parts[0] == "ls" and len(parts) == 2:  # dd if=/dev/urandom of=largefile.txt bs=1M count=100
-                                                # Above is a good way of generating a large text file with random text.
+    if parts[0] == "ls" and len(parts) == 2:  
         hydfs = parts[1]
         
         live_server = find_live_server()
