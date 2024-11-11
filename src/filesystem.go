@@ -532,6 +532,7 @@ func HTTPServer(fs *FileServer) {
 	http.HandleFunc("/append", fs.httpHandleAppend)
 	http.HandleFunc("/appending", fs.httpHandleAppending)
 	http.HandleFunc("/get", fs.httpHandleGet)
+	http.HandleFunc("/getfromreplica", fs.httpHandleGetfromreplica)
 	http.HandleFunc("/getting", fs.httpHandleGetting)
 	http.HandleFunc("/store", fs.httpHandleStore)
 	http.HandleFunc("/storedfilenames", fs.httpHandleStoredfilenames)
@@ -952,6 +953,64 @@ func (fs *FileServer) httpHandleGet(w http.ResponseWriter, r *http.Request) {
 		}
 
 		url := fmt.Sprintf("http://%s:%s/getting?filename=%s&ftype=p", id_to_domain(responsible_server_id), HTTP_PORT, hydfs)
+		req2, _ := http.NewRequest(http.MethodGet, url, nil)
+
+		client := &http.Client{Timeout: time.Minute * 2}
+		resp, err := client.Do(req2)
+
+		if err != nil {
+			log.Println("Error in making getting requesting to external servers")
+			http.Error(w, "Error fetching the file, internal error", http.StatusInternalServerError)
+			return
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			http.Error(w, "Rejected, file "+hydfs+" doesn't exist", http.StatusBadRequest)
+			return
+		}
+		// Stream the response body to the response writer directly
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, err = io.Copy(w, resp.Body)
+
+		defer resp.Body.Close()
+		if err != nil {
+			log.Println("Error while sending file content:", err)
+			http.Error(w, "Error sending file content", http.StatusInternalServerError)
+		}
+		return
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (fs *FileServer) httpHandleGetfromreplica(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		var req map[string]string
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Access file1 and file2 directly from the map
+		_, localExists := req["local"]
+		hydfs, hydfsExists := req["hydfs"]
+		if !localExists || !hydfsExists {
+			http.Error(w, "Missing localfilename or HyDFSfilename in request", http.StatusBadRequest)
+			return
+		}
+
+		// Find out the primary server of the HyDFS file
+		fileID := hashKey(hydfs)
+		responsible_server_id := findServerByfileID(fs.aliveml.Alive_Ids(), fileID)
+		if responsible_server_id == -1 {
+			log.Println("Invalid findServerByfileID result in httpHandleCreate")
+			http.Error(w, "Rejected due to server internal error", http.StatusBadRequest)
+			return
+		}
+
+		url := fmt.Sprintf("%s:%s/getting?filename=%s&ftype=r", req["vm_add"], HTTP_PORT, hydfs)
 		req2, _ := http.NewRequest(http.MethodGet, url, nil)
 
 		client := &http.Client{Timeout: time.Minute * 2}
