@@ -202,12 +202,33 @@ def handle_user_input(user_input):
                 
                 if response.ok:
                     # Step 2: Send the actual file content
-                    print("File content received, length ", len(response.text))
                     with open(FILE_PATH_PREFIX + local, 'w') as f:
                         f.write(response.text)
                     print("File get successfully!")
                 else:
                     print("Get file failed:", response.text)
+
+            except requests.RequestException as e:
+                print("Request to server failed:", e)
+        else:
+            print("No live servers available")
+        return True
+
+    if parts[0] == "ls" and len(parts) == 2:  # dd if=/dev/urandom of=largefile.txt bs=1M count=100
+                                                # Above is a good way of generating a large text file with random text.
+        hydfs = parts[1]
+        
+        live_server = find_live_server()
+        if live_server:
+            try:
+                # Step 1: Request authorization to create the file
+                response = requests.get(f"{live_server}/ls?filename={hydfs}")
+                
+                if response.ok:
+                    # Step 2: Send the actual file content
+                    print(response.text)
+                else:
+                    print("Ls file failed:", response.text)
 
             except requests.RequestException as e:
                 print("Request to server failed:", e)

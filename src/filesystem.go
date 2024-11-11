@@ -537,12 +537,65 @@ func HTTPServer(fs *FileServer) {
 	http.HandleFunc("/storedfilenames", fs.httpHandleStoredfilenames)
 	http.HandleFunc("/merging", fs.httpHandleMerging)
 	http.HandleFunc("/merge", fs.httpHandleMerge)
+	http.HandleFunc("/ls", fs.httpHandleLs)
 
 	fmt.Println("Starting HTTP server on :" + HTTP_PORT)
 	log.Fatal(http.ListenAndServe(":"+HTTP_PORT, nil))
 }
 
 // HTTP handler functions
+func (fs *FileServer) httpHandleLs(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		filename := r.URL.Query().Get("filename")
+
+		fid := hashKey(filename)
+		fs.Mutex.Lock()
+		p_id := findServerByfileID(fs.aliveml.Alive_Ids(), fid)
+		fs.Mutex.Unlock()
+
+		url := fmt.Sprintf("http://%s:%s/existfile?filename=%s&ftype=p", id_to_domain(p_id), HTTP_PORT, filename)
+		req2, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			http.Error(w, "Failed when checking file existence", http.StatusInternalServerError)
+			return
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req2)
+		defer resp.Body.Close()
+
+		existFlag := true
+		if resp.StatusCode == http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			if string(body) == "NO" {
+				existFlag = false
+			}
+		}
+
+		if !existFlag {
+			http.Error(w, "File doesn't exist on HyDFS", http.StatusInternalServerError)
+			return
+		}
+
+		response_s := "VM addresses and ids storing the file:\n" + id_to_domain(p_id) + " " + strconv.Itoa(p_id) + "\n"
+		fs.Mutex.Lock()
+		succ := findSuccessors(p_id, fs.aliveml.Alive_Ids(), REP_NUM)
+		fs.Mutex.Unlock()
+
+		for _, i := range succ {
+			response_s += id_to_domain(i) + " " + strconv.Itoa(i) + "\n"
+		}
+
+		response_s += "File id of " + filename + " is " + strconv.Itoa(fid)
+
+		w.Write([]byte(response_s))
+		return
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (fs *FileServer) httpHandleCreate(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -955,6 +1008,7 @@ func (fs *FileServer) httpHandleGetting(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		defer file.Close()
+		fmt.Println("Reacting to get request for file " + filename)
 
 		w.WriteHeader(http.StatusOK)
 		if _, err := io.Copy(w, file); err != nil {
