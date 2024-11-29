@@ -181,3 +181,8 @@ Below is a draft of the Go Routines running on the file server.
 
 ### 3.2 Client Code
 The logic of HyDFS client is straight-forward. Only a single process is needed for the client program to ask for commands from user input. Handle the command with a switch statement, make HTTP requests to the randomly selected ```coordinator``` server accordingly.
+
+## Debug
+Run
+
+    go tool pprof http://localhost:6060/debug/pprof/profile

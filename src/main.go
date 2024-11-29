@@ -4,6 +4,8 @@ import (
 	"HyDFS/failuredetector"
 	"fmt"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"strconv"
@@ -11,7 +13,6 @@ import (
 )
 
 func main() {
-
 	// Signal handling for graceful shutdown
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
@@ -32,6 +33,10 @@ func main() {
 	}
 	defer logFile.Close()
 	log.SetOutput(logFile)
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 
 	// Get the second argument which is the VM number
 	vmNumber, err := strconv.Atoi(os.Args[1])
