@@ -274,21 +274,33 @@ func (ml *MembershipList) Alive_Ids() []int {
 	ml.mu.Lock()         // Acquire the lock before reading the map
 	defer ml.mu.Unlock() // Ensure the lock is released after the operation
 
-	var ids []int
+	// Pre-allocate the slice with an initial capacity equal to the number of members
+	ids := make([]int, 0, len(ml.Members))
+
 	for _, member := range ml.Members {
 		if member.State == Failed {
 			continue
 		}
-		s := member.IP
 
+		// Extract IP and split the string
+		s := member.IP
 		parts := strings.Split(s, "-")
-		if len(parts) >= 3 {
+
+		// Ensure the IP has enough parts and the expected format
+		if len(parts) >= 3 && len(parts[2]) >= 4 {
 			twoDigitStr := parts[2][2:4] // Extract the "68" part as a string
+
+			// Attempt to convert the extracted string into an integer
 			if id, err := strconv.Atoi(twoDigitStr); err == nil {
 				ids = append(ids, id) // Collect the integer
+			} else {
+				// Log error if conversion fails, but continue processing
+				log.Printf("Error parsing IP part: %s, error: %v", twoDigitStr, err)
 			}
 		}
 	}
+
+	// Sort the ids in ascending order
 	sort.Ints(ids)
 	return ids
 }

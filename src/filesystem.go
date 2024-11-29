@@ -264,7 +264,7 @@ func Maintenance(fs *FileServer) {
 		delayedMove(fs)
 		automerge(fs)
 
-		// time.Sleep(time.Second)
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
