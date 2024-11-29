@@ -521,6 +521,7 @@ func HTTPServer(fs *FileServer) {
 		if fs.online {
 			break
 		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	http.HandleFunc("/", fs.httpHandleSlash)        // Handle slash request (used when client search coordinator servers)
