@@ -189,8 +189,7 @@ def handle_user_input(user_input):
             print("No live servers available")
         return True
 
-    if parts[0] == "get" and len(parts) == 3:  # dd if=/dev/urandom of=largefile.txt bs=1M count=100
-                                                # Above is a good way of generating a large text file with random text.
+    if parts[0] == "get" and len(parts) == 3:
         hydfs, local = parts[1], parts[2]
         
         live_server = find_live_server()
@@ -199,11 +198,15 @@ def handle_user_input(user_input):
                 # Step 1: Request authorization to create the file
                 data = {"local": local, "hydfs": hydfs}
                 response = requests.get(f"{live_server}/get", json=data)
-                
+
                 if response.ok:
-                    # Step 2: Send the actual file content
-                    with open(FILE_PATH_PREFIX + local, 'w') as f:
-                        f.write(response.text)
+                    # Ensure correct encoding
+                    response.encoding = 'utf-8'  
+                    data = response.text
+                    
+                    # Step 2: Write content to the file with proper encoding
+                    with open(FILE_PATH_PREFIX + local, 'w', encoding='utf-8') as f:
+                        f.write(data)
                     print("File get successfully!")
                 else:
                     print("Get file failed:", response.text)
@@ -213,6 +216,7 @@ def handle_user_input(user_input):
         else:
             print("No live servers available")
         return True
+
 
     if parts[0] == "getfromreplica" and len(parts) == 4:  
         vm_id, hydfs, local = parts[1], parts[2], parts[3]
