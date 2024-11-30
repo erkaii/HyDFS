@@ -3,30 +3,59 @@ package failuredetector
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v2"
 )
 
-const (
-	N              = 10              // Number of machines
-	K              = 3               // Number of random machines to ask for a ping
-	Timeout        = 2 * time.Second // Timeout for receiving an ACK
-	RepingTimeout  = 2 * time.Second
-	PingPort       = "2234"
-	RepingPort     = "2235"
-	GossipPort     = "2236"
-	CmdPort        = "2237" // Used in HyDFS to listen for commands from clients
-	G              = 4
-	GossipDuration = 3 * time.Second
-	IntroducerAddr = "fa24-cs425-6801.cs.illinois.edu"
-	FD_period      = time.Second
+var (
+	N              int
+	K              int
+	Timeout        time.Duration
+	RepingTimeout  time.Duration
+	PingPort       string
+	RepingPort     string
+	GossipPort     string
+	CmdPort        string
+	G              int
+	GossipDuration time.Duration
+	IntroducerAddr string
+	FD_period      time.Duration
 )
+
+func loadConfig(filename string) {
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatalf("Failed to open config file: %s", err)
+	}
+	defer file.Close()
+
+	config := make(map[string]interface{})
+	decoder := yaml.NewDecoder(file)
+	if err := decoder.Decode(&config); err != nil {
+		log.Fatalf("Failed to parse config file: %s", err)
+	}
+
+	N = config["N"].(int)
+	K = config["FD_K"].(int)
+	Timeout, _ = time.ParseDuration(config["FD_ping_timeout"].(string))
+	RepingTimeout, _ = time.ParseDuration(config["FD_reping_timeout"].(string))
+	PingPort = config["FD_ping_port"].(string)
+	RepingPort = config["FD_reping_port"].(string)
+	GossipPort = config["FD_gossip_port"].(string)
+	CmdPort = config["FD_cmd_port"].(string)
+	G = config["FD_G"].(int)
+	GossipDuration, _ = time.ParseDuration(config["FD_gossip_duration"].(string))
+	IntroducerAddr = config["FD_introducer_addr"].(string)
+	FD_period, _ = time.ParseDuration(config["FD_fd_period"].(string))
+}
 
 func Failuredetect(ml *MembershipList, vmNumber int) {
+	loadConfig("../config.yaml")
 	// Construct the domain name based on the VM number
 	domain := "fa24-cs425-68" + fmt.Sprintf("%02d", vmNumber) + ".cs.illinois.edu"
-
-	// ml := NewMembershipList()
 
 	// Failure detection go routains
 	go startListenPing(domain, ml)
@@ -35,6 +64,7 @@ func Failuredetect(ml *MembershipList, vmNumber int) {
 	go startListenCmd(domain, ml)
 	go startFailureDetect(ml, domain)
 
+	// Wait 0.5s before introducer requests to join itself
 	time.Sleep(500 * time.Millisecond)
 
 	// Sent join request automatically

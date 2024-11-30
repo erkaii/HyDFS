@@ -1,0 +1,12 @@
+N: 10
+FD_K: 3
+FD_G: 4
+FD_ping_timeout: 2s
+FD_reping_timeout: 2s
+FD_ping_port: "2234"
+FD_reping_port: "2235"
+FD_gossip_port: "2236"
+FD_cmd_port: "2237"
+FD_gossip_duration: 3s
+FD_introducer_addr: "fa24-cs425-6801.cs.illinois.edu"
+FD_fd_period: 1s
